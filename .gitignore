@@ -4,8 +4,6 @@ logs/
 .vscode
 *.sqlite3
 db.sqlite3
-**/migrations/*
-!**/migrations/__init__.py
 __pycache__/
 **/__pycache__/
 .env
@@ -13,3 +11,10 @@ __pycache__/
 media/
 media
 .env.prod
+*.pyc
+*.pyo
+*.log
+venv/
+.venv/
+ENV/
+staticserve/
