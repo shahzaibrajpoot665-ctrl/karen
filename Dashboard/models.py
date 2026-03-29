@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 # Create your models here.
 class User(AbstractUser):
@@ -77,6 +79,19 @@ class Product(models.Model):
             for link in persistent_links:
                 if not self.images.filter(id=link.image.id).exists():
                     self.images.add(link.image)
+
+@receiver(post_delete, sender=Product)
+def _delete_product_generated_images(sender, instance, **kwargs):
+    for f in (getattr(instance, 'qrcode_image', None), getattr(instance, 'barcode_image', None)):
+        try:
+            if not f or not getattr(f, 'name', None):
+                continue
+            storage = f.storage
+            name = f.name
+            if storage.exists(name):
+                storage.delete(name)
+        except Exception:
+            pass
 
 class Customer(models.Model):
     name = models.CharField(max_length=255)

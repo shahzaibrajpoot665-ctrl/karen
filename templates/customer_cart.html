@@ -63,9 +63,11 @@
                                                         <select class="form-control select2" id="productSelect" style="width: 100%;">
                                                             <option value="">Choose a product...</option>
                                                             {% for product in products %}
-                                                                <option value="{{ product.id }}" data-code="{{ product.parent_code }}-{{ product.child_code }}" data-location="{{ product.location }}">
-                                                                    {{ product.parent_code }}-{{ product.child_code }} ({{ product.location }})
-                                                                </option>
+                                                                {% with first_image=product.images.all.0 %}
+                                                                    <option value="{{ product.id }}" data-code="{{ product.parent_code }}-{{ product.child_code }}" data-location="{{ product.location }}" data-image="{% if first_image %}{{ first_image.image.url }}{% endif %}">
+                                                                        {{ product.parent_code }}-{{ product.child_code }} ({{ product.location }})
+                                                                    </option>
+                                                                {% endwith %}
                                                             {% endfor %}
                                                         </select>
                                                     </div>
@@ -351,7 +353,44 @@ $(document).ready(function() {
     // Initialize Select2
     $('#productSelect').select2({
         placeholder: "Choose a product...",
-        allowClear: true
+        allowClear: true,
+        width: '100%',
+        templateResult: function (data) {
+            if (!data.id) {
+                return data.text;
+            }
+
+            const el = data.element ? $(data.element) : null;
+            const imgUrl = el ? (el.data('image') || '') : '';
+            const code = el ? (el.data('code') || '') : '';
+            const location = el ? (el.data('location') || '') : '';
+
+            const thumb = imgUrl
+                ? `<img src="${imgUrl}" style="width:28px;height:28px;border-radius:6px;object-fit:cover;border:1px solid #e6e8ec;" />`
+                : `<div style="width:28px;height:28px;border-radius:6px;background:#f5f6f8;border:1px solid #e6e8ec;"></div>`;
+
+            const safeCode = code ? code : data.text;
+            const meta = location ? `<div style="font-size:12px;color:#6c757d;line-height:1.2;">${location}</div>` : '';
+
+            return $(
+                `<div style="display:flex;align-items:center;gap:10px;padding:2px 0;">
+                    ${thumb}
+                    <div style="min-width:0;">
+                        <div style="font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;">${safeCode}</div>
+                        ${meta}
+                    </div>
+                </div>`
+            );
+        },
+        templateSelection: function (data) {
+            if (!data.id) {
+                return data.text;
+            }
+            const el = data.element ? $(data.element) : null;
+            const code = el ? (el.data('code') || '') : '';
+            return code || data.text;
+        },
+        escapeMarkup: function (m) { return m; }
     });
 
     loadCartItems();
@@ -655,7 +694,7 @@ function loadCartItems() {
                 response.cart_items.forEach(function(item) {
                     const priceDisplay = (item.currency_note && item.price !== null)
                         ? `${item.currency_note} ${Number(item.price).toFixed(2)}`
-                        : '-';
+                        : (item.currency_note && item.price_raw ? `${item.currency_note} ${item.price_raw}` : '-');
                     const amountDisplay = (item.currency_note && item.amount !== null)
                         ? `${item.currency_note} ${Number(item.amount).toFixed(2)}`
                         : '-';

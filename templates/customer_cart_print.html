@@ -328,20 +328,29 @@
 
     <!-- Summary section (black bar + lines) -->
     <div style="margin-top:12px; background:#000; color:#fff; padding:8px; font-weight:700; text-transform:uppercase;">SUMMARY</div>
-    <div style="font-size:12px; margin-top:8px;">
-        <div>Total Items: {{ total_items }} Pcs.</div>
-        <div>Total Quantity: {{ total_quantity }} Pcs.</div>
-        <div>Total Net Weight: {{ total_weight|floatformat:2 }} g.</div>
-        <div>Total Gross Weight: {{ cart.gross_weight|floatformat:2 }} g.</div>
-        <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Category</div>
-        <div>Earring: {{ earring_count }} Prs.</div>
-        <div>Ring: {{ ring_count }} Pcs.</div>
-        <div>Bracelet and Bangle: {{ bracelet_bangle_count }} Pcs.</div>
-        <div>Necklace: {{ necklace_count }} Pcs.</div>
-        <div>Other Accessories (Ex. Beads): {{ others_count }} Pcs.</div>
-        <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Notes</div>
-        <div>{{ cart.notes }}</div>
-    </div>
+    <table style="width:100%; border-collapse:collapse; margin-top:8px; font-size:12px;">
+        <tr>
+            <td style="width:55%; vertical-align:top; padding-right:12px;">
+                <div>Total Items: {{ total_items }} Pcs.</div>
+                <div>Total Quantity: {{ total_quantity }} Pcs.</div>
+                <div>Total Net Weight: {{ total_weight|floatformat:2 }} g.</div>
+                <div>Total Gross Weight: {{ cart.gross_weight|floatformat:2 }} g.</div>
+                <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Category</div>
+                <div>Earring: {{ earring_count }} Prs.</div>
+                <div>Ring: {{ ring_count }} Pcs.</div>
+                <div>Bracelet and Bangle: {{ bracelet_bangle_count }} Pcs.</div>
+                <div>Necklace: {{ necklace_count }} Pcs.</div>
+                <div>Other Accessories (Ex. Beads): {{ others_count }} Pcs.</div>
+                <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Notes</div>
+                <div>{{ cart.notes }}</div>
+            </td>
+            <td style="width:45%; vertical-align:top;">
+                <div style="border:1px solid #000; min-height:220px; padding:10px;">
+                    <div style="font-weight:700; text-transform:uppercase; margin-bottom:6px; text-align:center;">Notes</div>
+                </div>
+            </td>
+        </tr>
+    </table>
     {% else %}
         <div class="empty-cart">
             <h3>🛒 Cart is Empty</h3>

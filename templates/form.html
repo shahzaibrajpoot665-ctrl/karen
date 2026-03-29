@@ -432,6 +432,61 @@
                             </div>
                           </div>
 
+                          <div class="modal fade" id="productImportProgressModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+                            <div class="modal-dialog modal-dialog-centered" role="document">
+                              <div class="modal-content">
+                                <div class="modal-header">
+                                  <h5 class="modal-title">Import Products</h5>
+                                </div>
+                                <div class="modal-body">
+                                  <div class="d-flex justify-content-between">
+                                    <div class="text-muted">Total rows</div>
+                                    <div class="font-weight-bold"><span id="importTotalRows">—</span></div>
+                                  </div>
+                                  <div class="d-flex justify-content-between mt-2">
+                                    <div class="text-muted">Uploaded</div>
+                                    <div class="font-weight-bold"><span id="importProcessedRows">0</span> / <span id="importTotalRows2">—</span></div>
+                                  </div>
+                                  <div class="progress mt-3" style="height: 10px;">
+                                    <div id="importProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                                  </div>
+                                  <div id="importStatusText" class="mt-3 text-muted d-flex align-items-center"></div>
+                                  <div class="mt-3">
+                                    <div class="d-flex justify-content-between">
+                                      <div class="text-muted">Summary</div>
+                                      <div class="font-weight-bold">
+                                        <span class="text-success">Success: <span id="importSuccessCount">0</span></span>
+                                        <span class="mx-2">|</span>
+                                        <span class="text-danger">Failed: <span id="importFailedCount">0</span></span>
+                                        <span class="mx-2">|</span>
+                                        <span class="text-muted">Skipped: <span id="importSkippedCount">0</span></span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div id="importErrorsWrap" class="mt-3" style="display:none;">
+                                    <div class="font-weight-bold text-danger mb-2">Failed Rows</div>
+                                    <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
+                                      <table class="table table-sm table-striped mb-0">
+                                        <thead>
+                                          <tr>
+                                            <th style="width: 90px;">Row</th>
+                                            <th style="width: 160px;">Child Code</th>
+                                            <th>Error</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody id="importErrorsBody"></tbody>
+                                      </table>
+                                    </div>
+                                    <div id="importErrorsTruncated" class="mt-2 text-muted" style="display:none;"></div>
+                                  </div>
+                                </div>
+                                <div class="modal-footer">
+                                  <button type="button" class="btn btn-secondary" id="importCloseBtn" data-dismiss="modal" disabled>Close</button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
                     </div>
                 </div>
                 <!-- Row -->
@@ -586,6 +641,163 @@
             } else {
                 productsSection.style.display = 'block';
             }
+        });
+
+        let importPollTimer = null;
+        let importCompleted = false;
+        let lastRenderedFailedRows = 0;
+
+        function setImportStatus(html) {
+            $('#importStatusText').html(html);
+        }
+
+        function setImportProgress(processed, total) {
+            const safeTotal = total || 0;
+            const safeProcessed = processed || 0;
+            $('#importProcessedRows').text(safeProcessed);
+            $('#importTotalRows').text(safeTotal);
+            $('#importTotalRows2').text(safeTotal);
+            const pct = safeTotal > 0 ? Math.min(100, Math.round((safeProcessed / safeTotal) * 100)) : 0;
+            $('#importProgressBar').css('width', pct + '%').attr('aria-valuenow', pct);
+        }
+
+        function setImportCounts(successCount, failedCount, skippedCount) {
+            $('#importSuccessCount').text(successCount || 0);
+            $('#importFailedCount').text(failedCount || 0);
+            $('#importSkippedCount').text(skippedCount || 0);
+        }
+
+        function resetImportErrors() {
+            lastRenderedFailedRows = 0;
+            $('#importErrorsBody').empty();
+            $('#importErrorsWrap').hide();
+            $('#importErrorsTruncated').hide().text('');
+        }
+
+        function appendImportErrors(failedRows) {
+            if (!failedRows || failedRows.length === 0) {
+                return;
+            }
+
+            $('#importErrorsWrap').show();
+            const tbody = $('#importErrorsBody');
+            for (let i = lastRenderedFailedRows; i < failedRows.length; i++) {
+                const r = failedRows[i] || {};
+                const rowNum = (r.row !== undefined && r.row !== null) ? r.row : '';
+                const childCode = r.child_code || '';
+                const err = r.error || '';
+                tbody.append(`<tr><td>${rowNum}</td><td>${childCode}</td><td>${err}</td></tr>`);
+            }
+            lastRenderedFailedRows = failedRows.length;
+        }
+
+        function stopImportPolling() {
+            if (importPollTimer) {
+                clearInterval(importPollTimer);
+                importPollTimer = null;
+            }
+        }
+
+        function pollImportStatus(importId) {
+            $.ajax({
+                url: '{% url "product_import_status" %}',
+                method: 'GET',
+                data: { import_id: importId },
+                success: function (resp) {
+                    if (!resp.success) {
+                        stopImportPolling();
+                        setImportStatus(resp.message || 'Import status error');
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+
+                    setImportProgress(resp.processed_rows, resp.total_rows);
+                    setImportCounts(resp.success_count, resp.failed_count, resp.skipped_count);
+                    appendImportErrors(resp.failed_rows);
+                    if (resp.failed_rows_truncated) {
+                        const extra = resp.failed_rows_truncated_count || 0;
+                        $('#importErrorsTruncated').show().text(`Some errors were not listed (${extra} additional).`);
+                    }
+
+                    if (resp.status === 'done') {
+                        importCompleted = true;
+                        stopImportPolling();
+                        if ((resp.failed_count || 0) > 0) {
+                            setImportStatus('Import completed with some errors.');
+                        } else {
+                            setImportStatus('Import completed successfully.');
+                        }
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+
+                    if (resp.status === 'error') {
+                        stopImportPolling();
+                        setImportStatus(resp.message || 'Import failed');
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+                },
+                error: function () {
+                    stopImportPolling();
+                    setImportStatus('Error checking import status');
+                    $('#importCloseBtn').prop('disabled', false);
+                }
+            });
+        }
+
+        $('#productImportProgressModal').on('hidden.bs.modal', function () {
+            stopImportPolling();
+            if (importCompleted) {
+                window.location.reload();
+            }
+        });
+
+        $('#navpills-2').on('submit', function (e) {
+            e.preventDefault();
+            importCompleted = false;
+            $('#importCloseBtn').prop('disabled', true);
+            setImportProgress(0, 0);
+            setImportCounts(0, 0, 0);
+            resetImportErrors();
+            setImportStatus('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Preparing import…');
+            $('#productImportProgressModal').modal('show');
+
+            const form = this;
+            const formData = new FormData(form);
+
+            $.ajax({
+                url: '{% url "product_import_start" %}',
+                method: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function (resp) {
+                    if (!resp.success) {
+                        setImportStatus(resp.message || 'Import failed to start');
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+
+                    setImportProgress(0, resp.total_rows);
+                    setImportStatus('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Uploading rows…');
+
+                    stopImportPolling();
+                    pollImportStatus(resp.import_id);
+                    importPollTimer = setInterval(function () {
+                        pollImportStatus(resp.import_id);
+                    }, 600);
+                },
+                error: function (xhr) {
+                    let msg = 'Import failed to start';
+                    try {
+                        const data = xhr.responseJSON;
+                        if (data && data.message) msg = data.message;
+                    } catch (err) {}
+                    setImportStatus(msg);
+                    $('#importCloseBtn').prop('disabled', false);
+                }
+            });
         });
     });
 

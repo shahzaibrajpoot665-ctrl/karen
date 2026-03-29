@@ -101,6 +101,7 @@
                 <button id="selectAllImagesBtn" class="btn btn-secondary btn-sm">Select All</button>
                 <button id="deselectAllImagesBtn" class="btn btn-secondary btn-sm">Deselect All</button>
                 <button id="deleteSelectedImagesBtn" class="btn btn-danger btn-sm" disabled>Delete Selected</button>
+                <button id="deleteAllImagesBtn" class="btn btn-danger btn-sm">Delete Table</button>
                 <span id="selectedImagesCount" class="ml-2 text-muted">0 selected</span>
               </div>
             </div>
@@ -301,6 +302,35 @@
       </div>
     </div>
   </div>
+
+  <div class="modal fade" id="deleteAllImagesModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Delete All Images</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex align-items-start">
+            <div class="mr-3">
+              <span class="btn btn-danger btn-circle btn-lg"><i class="mdi mdi-alert"></i></span>
+            </div>
+            <div class="flex-grow-1">
+              <div class="font-weight-bold">This will permanently delete all images.</div>
+              <div class="text-muted">This cannot be undone.</div>
+              <div id="deleteAllImagesModalStatus" class="mt-3 text-muted"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal" id="deleteAllImagesCancelBtn">Cancel</button>
+          <button type="button" class="btn btn-danger" id="deleteAllImagesConfirmBtn">Delete All</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 <!-- End Wrapper -->
 
@@ -332,15 +362,11 @@
       loadImages();
     });
 
-    // Product search in modal - use event delegation
-    console.log('Setting up event delegation for product search');
     $(document).on(
       "input",
-      "#product-search",
+      "#linkProductModal #product-search",
       debounce(function (event) {
-        console.log('Search input event triggered via delegation');
         const searchValue = $(event.target).val();
-        console.log('Input value from event:', searchValue);
         searchProducts(searchValue);
       }, 300)
     );
@@ -517,7 +543,7 @@
     currentImageId = imageId;
     selectedProducts = [];
     $("#selected-products-list").empty();
-    $("#product-search").val("");
+    $("#linkProductModal #product-search").val("");
     
     // Load existing linked products for this image
     const image = allImages.find(img => img.id === imageId);
@@ -527,48 +553,51 @@
         addSelectedProduct(product.id, `${product.parent_code} - ${product.child_code}`);
       });
     }
-    
-    searchProducts();
+
+    displayProductOptions([]);
     $("#linkProductModal").modal("show");
-    
-    // Test if search input is accessible after modal is shown
-    setTimeout(function() {
-      console.log('Modal shown, search input exists:', $("#product-search").length > 0);
-      console.log('Search input is visible:', $("#product-search").is(':visible'));
-    }, 500);
   }
 
   function searchProducts(searchTerm) {
-    const search = searchTerm || $("#product-search").val();
-    console.log('Searching for:', search);
+    const raw = (searchTerm !== undefined ? searchTerm : $("#linkProductModal #product-search").val());
+    const search = (raw || "").trim();
+    if (!search) {
+      displayProductOptions([]);
+      return;
+    }
 
     $.ajax({
-      url: '{% url "product_api" %}',
+      url: '{% url "search_products_for_linking" %}',
       method: "GET",
       data: {
-        search: search,
-        page_size: 50,
+        q: search,
       },
       success: function (response) {
-        console.log('Search response:', response);
-        const products = response.results || response.data || [];
-        console.log('Products found:', products.length);
-        displayProductOptions(products);
+        const products = response && response.success ? (response.products || []) : [];
+        displayProductOptions(products, search);
       },
       error: function (xhr, status, error) {
-        console.error('Search error:', error);
-        alert("Error loading products: " + error);
+        displayProductOptions([], search);
       },
     });
   }
 
-  function displayProductOptions(products) {
+  function displayProductOptions(products, searchTerm) {
     const container = $("#product-options");
     container.empty();
 
+    if (!products || products.length === 0) {
+      if (!searchTerm) {
+        container.html('<div class="text-muted" style="padding: 10px;">Search to find products</div>');
+      } else {
+        container.html('<div class="text-muted" style="padding: 10px;">No matching products found</div>');
+      }
+      return;
+    }
+
     products.forEach(function (product) {
       const isSelected = selectedProducts.includes(product.id);
-      const productName = `${product.parent_code} - ${product.child_code}`;
+      const productName = product.display_name || `${product.parent_code} - ${product.child_code}`;
       const productOption = `
             <div class="product-option ${isSelected ? "selected" : ""}" 
                  data-product-id="${product.id}" 
@@ -577,8 +606,7 @@
                  }, '${productName.replace(/'/g, "\\'")}')" 
                  style="padding: 10px; border: 1px solid #ddd; margin: 5px; cursor: pointer; border-radius: 5px;">
                 <strong>${productName}</strong><br>
-                <small class="text-muted">Location: ${product.location || 'N/A'}</small><br>
-                <small class="text-success">$${product.thai_baht || '0'}</small>
+                <small class="text-muted">Location: ${product.location || 'N/A'}</small>
             </div>
         `;
       container.append(productOption);
@@ -833,10 +861,52 @@
     });
   }
 
+  function deleteAllImagesTable() {
+    $("#deleteAllImagesModalStatus").text("");
+    $("#deleteAllImagesConfirmBtn").prop("disabled", false);
+    $("#deleteAllImagesCancelBtn").prop("disabled", false);
+    $("#deleteAllImagesModal").modal("show");
+  }
+
+  function runDeleteAllImages() {
+    $("#deleteAllImagesConfirmBtn").prop("disabled", true);
+    $("#deleteAllImagesCancelBtn").prop("disabled", true);
+    $("#deleteAllImagesModalStatus").html('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Deleting images…');
+
+    $.ajax({
+      url: '{% url "image_api" %}',
+      method: "POST",
+      data: {
+        csrfmiddlewaretoken: $("[name=csrfmiddlewaretoken]").val(),
+        action: "delete_all_images",
+      },
+      success: function (response) {
+        if (response.success) {
+          $("#deleteAllImagesModalStatus").text(`Successfully deleted ${response.deleted_count} image(s).`);
+          loadImages(1);
+          selectedImages.clear();
+          updateSelectedImagesCount();
+          setTimeout(function () {
+            $("#deleteAllImagesModal").modal("hide");
+          }, 700);
+        } else {
+          $("#deleteAllImagesModalStatus").text(response.message || "Delete failed");
+          $("#deleteAllImagesCancelBtn").prop("disabled", false);
+        }
+      },
+      error: function () {
+        $("#deleteAllImagesModalStatus").text("Error occurred while deleting all images.");
+        $("#deleteAllImagesCancelBtn").prop("disabled", false);
+      },
+    });
+  }
+
   // Add event listeners for the buttons
   document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('selectAllImagesBtn').addEventListener('click', selectAllImages);
     document.getElementById('deselectAllImagesBtn').addEventListener('click', deselectAllImages);
     document.getElementById('deleteSelectedImagesBtn').addEventListener('click', showDeleteMultipleImagesModal);
+    document.getElementById('deleteAllImagesBtn').addEventListener('click', deleteAllImagesTable);
+    document.getElementById('deleteAllImagesConfirmBtn').addEventListener('click', runDeleteAllImages);
   });
 </script>

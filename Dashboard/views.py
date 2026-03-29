@@ -3,6 +3,9 @@ from django.db import models
 from .models import *
 import uuid
 import os
+import tempfile
+import threading
+import re
 from openpyxl import Workbook
 from django.http import JsonResponse
 from django.contrib import messages
@@ -29,6 +32,370 @@ from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+
+def _product_import_cache_key(import_id):
+    return f'product_import:{import_id}'
+
+def _get_product_import_state(import_id):
+    return cache.get(_product_import_cache_key(import_id))
+
+def _set_product_import_state(import_id, state, timeout_seconds=3600):
+    cache.set(_product_import_cache_key(import_id), state, timeout=timeout_seconds)
+
+def _update_product_import_state(import_id, **updates):
+    state = _get_product_import_state(import_id) or {}
+    state.update(updates)
+    _set_product_import_state(import_id, state)
+    return state
+
+def _parse_price_to_decimal(val):
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == 'null':
+        return None
+    s = s.replace(',', '')
+    if '/' in s:
+        return None
+    if re.fullmatch(r'[+-]?(\d+(\.\d+)?|\.\d+)', s) is None:
+        return None
+    try:
+        return Decimal(s)
+    except Exception:
+        return None
+
+def _process_product_import_job(import_id, file_path, max_import_rows):
+    try:
+        wb = load_workbook(file_path, data_only=True)
+        sheet = wb.active
+
+        header_values = [str(c.value).strip().lower() if c.value is not None else '' for c in sheet[1]]
+        def find_idx(candidates):
+            for name in candidates:
+                if name in header_values:
+                    return header_values.index(name)
+            return None
+
+        idx_parent = find_idx(['parent code','parent_code'])
+        idx_child = find_idx(['child code','child_code'])
+        idx_location = find_idx(['location'])
+        idx_stock = find_idx(['qty','stock','quantity'])
+        idx_kpo = find_idx(['kpo'])
+        idx_pairing = find_idx(['pairing set','pairing_set','pairing sets'])
+        idx_weight = find_idx(['weight'])
+        idx_thai_baht = find_idx(['thai baht','thai_baht','thb'])
+        idx_usd_rate = find_idx(['usd rate','usd_rate','usd dollar','usd'])
+        idx_euro_rate = find_idx(['euro rate','euro_rate','eur'])
+        idx_note1 = find_idx(['note 1','note_1'])
+        idx_note2 = find_idx(['note 2','note_2'])
+        idx_category = find_idx(['category','tag'])
+        idx_unit = find_idx(['unit'])
+        idx_description = find_idx(['product description','description'])
+        idx_images_names = find_idx(['images','image names','images names','image_names'])
+
+        required_indices = [idx_parent, idx_child, idx_location, idx_stock, idx_weight, idx_thai_baht, idx_usd_rate, idx_euro_rate, idx_note1, idx_note2]
+        if any(i is None for i in required_indices):
+            _update_product_import_state(import_id, status='error', message='Missing required columns in Excel header')
+            return
+
+        total_rows = max(0, (sheet.max_row or 1) - 1)
+        total_rows = min(total_rows, max_import_rows)
+        _update_product_import_state(
+            import_id,
+            total_rows=total_rows,
+            processed_rows=0,
+            success_count=0,
+            failed_count=0,
+            skipped_count=0,
+            failed_rows=[],
+            failed_rows_truncated=False,
+            failed_rows_truncated_count=0,
+            status='running',
+            message=''
+        )
+
+        processed_rows = 0
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        failed_rows = []
+        failed_rows_limit = 5000
+        failed_rows_truncated_count = 0
+
+        for row_index, fields in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=1):
+            if row_index > max_import_rows:
+                break
+
+            processed_rows = row_index
+            _update_product_import_state(import_id, processed_rows=processed_rows)
+
+            try:
+                if not fields or (idx_parent is not None and not fields[idx_parent]):
+                    skipped_count += 1
+                    continue
+
+                parent_code = fields[idx_parent]
+                child_code = fields[idx_child]
+                location = fields[idx_location]
+                stock = fields[idx_stock]
+                kpo = fields[idx_kpo] if idx_kpo is not None else None
+
+                if parent_code is None or str(parent_code).strip() == '':
+                    raise ValueError('Missing Parent Code')
+                if child_code is None or str(child_code).strip() == '':
+                    raise ValueError('Missing Child Code')
+                if location is None or str(location).strip() == '':
+                    raise ValueError('Missing Location')
+
+                pairing_sets_data = None
+                if idx_pairing is not None and fields[idx_pairing]:
+                    pairing_sets_data = str(fields[idx_pairing]).split(',')
+
+                try:
+                    weight = Decimal(str(fields[idx_weight])) if fields[idx_weight] is not None else Decimal('0.00')
+                except (ValueError, TypeError):
+                    weight = Decimal('0.00')
+
+                thai_baht = fields[idx_thai_baht]
+                usd_rate = fields[idx_usd_rate]
+                euro_rate = fields[idx_euro_rate]
+                note_1 = fields[idx_note1]
+                note_2 = fields[idx_note2]
+                description = fields[idx_description] if idx_description is not None else None
+                unit = fields[idx_unit] if idx_unit is not None else None
+                category_name = fields[idx_category] if idx_category is not None else None
+
+                images_names_data = None
+                if idx_images_names is not None and len(fields) > idx_images_names and fields[idx_images_names]:
+                    images_names_data = str(fields[idx_images_names]).split(',')
+
+                child_code_str = str(child_code).strip()
+                product = Product.objects.filter(child_code=child_code_str).first()
+                if product:
+                    product.location = location
+                    product.stock = stock
+                    product.kpo = kpo
+                    product.weight = weight
+                    product.thai_baht = thai_baht
+                    product.usd_rate = usd_rate
+                    product.euro_rate = euro_rate
+                    product.note_1 = note_1
+                    product.note_2 = note_2
+                    if description is not None:
+                        product.description = description
+                    if unit is not None:
+                        product.unit = unit
+                    if category_name:
+                        tag_obj, _ = Tag.objects.get_or_create(name=str(category_name).strip())
+                        product.tag = tag_obj
+                    product.save()
+                else:
+                    product = Product.objects.create(
+                        parent_code=str(parent_code).strip(),
+                        child_code=child_code_str,
+                        location=str(location).strip(),
+                        stock=stock,
+                        kpo=kpo,
+                        weight=weight,
+                        thai_baht=thai_baht,
+                        usd_rate=usd_rate,
+                        euro_rate=euro_rate,
+                        note_1=note_1,
+                        note_2=note_2,
+                        description=description or None,
+                        unit=unit or None
+                    )
+                    if category_name:
+                        try:
+                            tag_obj, _ = Tag.objects.get_or_create(name=str(category_name).strip())
+                            product.tag = tag_obj
+                            product.save()
+                        except Exception:
+                            pass
+
+                pairing_sets = []
+                if pairing_sets_data:
+                    for pair_value in pairing_sets_data:
+                        pair_value_str = str(pair_value).strip()
+                        if not pair_value_str:
+                            continue
+                        pairing_set_obj, created = PairingSet.objects.get_or_create(pair_value=pair_value_str)
+                        pairing_sets.append(pairing_set_obj)
+                    product.pairing_set.set(pairing_sets)
+
+                if images_names_data:
+                    images_names = []
+                    for image_name in images_names_data:
+                        image_name_str = str(image_name).strip()
+                        if not image_name_str:
+                            continue
+                        image_name_obj, created = ImageName.objects.get_or_create(name=image_name_str)
+                        images_names.append(image_name_obj)
+                    product.images_names.set(images_names)
+                    image_files = Image.objects.filter(image__in=[f'product_images/{img_name.name}' for img_name in images_names])
+                    product.images.set(image_files)
+                    product.save()
+
+                if not product.qrcode_image:
+                    qr_img = make(child_code_str)
+                    qr_img_name = f'{str(time())}.png'
+                    buffer = io.BytesIO()
+                    qr_img.save(buffer, format='PNG')
+                    buffer.seek(0)
+                    product.qrcode_image.save(qr_img_name, ImageFile(buffer), save=True)
+
+                if not product.barcode_image:
+                    barcode_obj = Code39(child_code_str, writer=ImageWriter())
+                    buffer = io.BytesIO()
+                    barcode_obj.write(buffer)
+                    buffer.seek(0)
+                    product.barcode_image.save(f'{child_code_str}.png', ImageFile(buffer), save=True)
+
+                product.save()
+                success_count += 1
+            except Exception as e:
+                failed_count += 1
+                excel_row_number = row_index + 1
+                err_text = str(e) if str(e) else e.__class__.__name__
+                if len(err_text) > 300:
+                    err_text = err_text[:300]
+                child_code_value = None
+                try:
+                    if fields and idx_child is not None and len(fields) > idx_child:
+                        child_code_value = fields[idx_child]
+                except Exception:
+                    child_code_value = None
+
+                if len(failed_rows) < failed_rows_limit:
+                    failed_rows.append({
+                        'row': excel_row_number,
+                        'child_code': (str(child_code_value).strip() if child_code_value is not None else ''),
+                        'error': err_text
+                    })
+                else:
+                    failed_rows_truncated_count += 1
+
+                _update_product_import_state(
+                    import_id,
+                    success_count=success_count,
+                    failed_count=failed_count,
+                    skipped_count=skipped_count,
+                    failed_rows=failed_rows,
+                    failed_rows_truncated=(failed_rows_truncated_count > 0),
+                    failed_rows_truncated_count=failed_rows_truncated_count
+                )
+
+            if row_index % 25 == 0:
+                _update_product_import_state(
+                    import_id,
+                    success_count=success_count,
+                    failed_count=failed_count,
+                    skipped_count=skipped_count,
+                    failed_rows=failed_rows,
+                    failed_rows_truncated=(failed_rows_truncated_count > 0),
+                    failed_rows_truncated_count=failed_rows_truncated_count
+                )
+
+        _update_product_import_state(
+            import_id,
+            status='done',
+            processed_rows=processed_rows,
+            success_count=success_count,
+            failed_count=failed_count,
+            skipped_count=skipped_count,
+            failed_rows=failed_rows,
+            failed_rows_truncated=(failed_rows_truncated_count > 0),
+            failed_rows_truncated_count=failed_rows_truncated_count,
+            message='Import completed'
+        )
+    except Exception as e:
+        _update_product_import_state(import_id, status='error', message=str(e))
+    finally:
+        try:
+            try:
+                wb.close()
+            except Exception:
+                pass
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
+
+@login_required
+def product_import_start(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    xlsx_file = request.FILES.get('xlsx_file')
+    if not xlsx_file:
+        return JsonResponse({'success': False, 'message': 'No file uploaded'}, status=400)
+
+    if not (xlsx_file.name.endswith('.xlsx') or xlsx_file.name.endswith('.xls')):
+        return JsonResponse({'success': False, 'message': 'File is not xlsx type'}, status=400)
+
+    max_import_rows = 10000
+    import_id = uuid.uuid4().hex
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(xlsx_file.name)[1] or '.xlsx')
+    tmp_path = tmp.name
+    try:
+        for chunk in xlsx_file.chunks():
+            tmp.write(chunk)
+    finally:
+        tmp.close()
+
+    try:
+        wb = load_workbook(tmp_path, data_only=True, read_only=True)
+        sheet = wb.active
+        total_rows = max(0, (sheet.max_row or 1) - 1)
+        wb.close()
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return JsonResponse({'success': False, 'message': 'Error reading Excel file'}, status=400)
+
+    if total_rows > max_import_rows:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return JsonResponse({'success': False, 'message': f'Import limit is {max_import_rows} rows per upload. Please split the file and try again.'}, status=400)
+
+    _set_product_import_state(import_id, {
+        'import_id': import_id,
+        'total_rows': total_rows,
+        'processed_rows': 0,
+        'success_count': 0,
+        'failed_count': 0,
+        'skipped_count': 0,
+        'failed_rows': [],
+        'failed_rows_truncated': False,
+        'failed_rows_truncated_count': 0,
+        'status': 'queued',
+        'message': ''
+    })
+
+    t = threading.Thread(target=_process_product_import_job, args=(import_id, tmp_path, max_import_rows), daemon=True)
+    t.start()
+
+    _update_product_import_state(import_id, status='running')
+    return JsonResponse({'success': True, 'import_id': import_id, 'total_rows': total_rows, 'max_rows': max_import_rows})
+
+@login_required
+def product_import_status(request):
+    import_id = request.GET.get('import_id')
+    if not import_id:
+        return JsonResponse({'success': False, 'message': 'Missing import_id'}, status=400)
+
+    state = _get_product_import_state(import_id)
+    if not state:
+        return JsonResponse({'success': False, 'message': 'Import not found'}, status=404)
+
+    return JsonResponse({'success': True, **state})
 
 
 @csrf_exempt
@@ -262,8 +629,12 @@ def form_view(request):
                     messages.error(request,'File is not xlsx type')
                     return redirect("form")
 
+                max_import_rows = 10000
                 wb = load_workbook(xlsx_file, data_only=True)
                 sheet = wb.active
+                if sheet.max_row and (sheet.max_row - 1) > max_import_rows:
+                    messages.error(request, f'Import limit is {max_import_rows} rows per upload. Please split the file and try again.')
+                    return redirect("form")
                 header_values = [str(c.value).strip().lower() if c.value is not None else '' for c in sheet[1]]
                 def find_idx(candidates):
                     for name in candidates:
@@ -290,7 +661,9 @@ def form_view(request):
                 if any(i is None for i in required_indices):
                     messages.error(request,'Missing required columns in Excel header')
                     return redirect("form")
-                for fields in sheet.iter_rows(min_row=2, values_only=True):
+                for row_index, fields in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=1):
+                    if row_index > max_import_rows:
+                        break
                     if not fields or (idx_parent is not None and not fields[idx_parent]):
                         continue
                     parent_code = fields[idx_parent]
@@ -360,19 +733,21 @@ def form_view(request):
                         product.images.set(image_files)
                         product.save()
 
-                    qr_img = make(child_code)
-                    qr_img_name = f'{str(time())}.png'
-                    buffer = io.BytesIO()
-                    qr_img.save(buffer, format='PNG')
-                    buffer.seek(0)
-                    product.qrcode_image.save(qr_img_name, ImageFile(buffer), save=True)
+                    if not product.qrcode_image:
+                        qr_img = make(child_code)
+                        qr_img_name = f'{str(time())}.png'
+                        buffer = io.BytesIO()
+                        qr_img.save(buffer, format='PNG')
+                        buffer.seek(0)
+                        product.qrcode_image.save(qr_img_name, ImageFile(buffer), save=True)
 
-                    barcode_obj = Code39(child_code, writer=ImageWriter())
-                    buffer = io.BytesIO()
-                    barcode_obj.write(buffer)
-                    buffer.seek(0)
-                    product.barcode_image.save(f'{child_code}.png', ImageFile(buffer), save=True)
-                
+                    if not product.barcode_image:
+                        barcode_obj = Code39(child_code, writer=ImageWriter())
+                        buffer = io.BytesIO()
+                        barcode_obj.write(buffer)
+                        buffer.seek(0)
+                        product.barcode_image.save(f'{child_code}.png', ImageFile(buffer), save=True)
+                    
                     product.save()
                     
             except Exception as e:
@@ -1098,6 +1473,35 @@ def image_api(request):
                 return JsonResponse({'success': False, 'message': 'Invalid image ID format'})
             except Exception as e:
                 return JsonResponse({'success': False, 'message': f'Error during bulk deletion: {str(e)}'})
+
+        elif action == 'delete_all_images':
+            try:
+                images = Image.objects.all()
+                image_paths = []
+                for image in images:
+                    try:
+                        if image.image and hasattr(image.image, 'path'):
+                            image_paths.append(image.image.path)
+                    except Exception:
+                        continue
+
+                deleted_count = images.count()
+                images.delete()
+
+                for image_path in image_paths:
+                    try:
+                        if image_path and os.path.exists(image_path):
+                            os.remove(image_path)
+                    except Exception:
+                        continue
+
+                return JsonResponse({
+                    'success': True,
+                    'deleted_count': deleted_count,
+                    'message': f'Successfully deleted {deleted_count} images'
+                })
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': f'Error deleting all images: {str(e)}'})
         
         return JsonResponse({'success': False, 'message': 'Invalid action'})
     
@@ -1322,6 +1726,7 @@ def search_products_for_linking(request):
                 'id': product.id,
                 'parent_code': product.parent_code,
                 'child_code': product.child_code,
+                'location': product.location,
                 'display_name': f"{product.parent_code} - {product.child_code}"
             })
         
@@ -1814,6 +2219,12 @@ def print_customer_cart(request, customer_id):
 
         # Helpers
         def to_float(val):
+            d = _parse_price_to_decimal(val)
+            if d is not None:
+                try:
+                    return float(d)
+                except Exception:
+                    return 0.0
             try:
                 return float(val)
             except Exception:
@@ -1828,13 +2239,13 @@ def print_customer_cart(request, customer_id):
         for ci in cart_items:
             p = ci.product
             if currency == 'USD':
-                unit = float(p.usd_rate or 0)
+                unit = to_float(p.usd_rate or 0)
                 label = 'USD'
             elif currency == 'EUR':
-                unit = float(p.euro_rate or 0)
+                unit = to_float(p.euro_rate or 0)
                 label = 'EUR'
             else:
-                unit = float(p.thai_baht or 0)
+                unit = to_float(p.thai_baht or 0)
                 label = 'THB'
             amount = unit * ci.quantity if unit else 0.0
             total_amount += amount
@@ -1956,7 +2367,7 @@ def customer_cart_view(request, customer_id):
         'customer': customer,
         'cart': cart,
         'cart_items': cart_items,
-        'products': Product.objects.all().order_by('parent_code', 'child_code'),
+        'products': Product.objects.prefetch_related('images').all().order_by('parent_code', 'child_code'),
     }
     return render(request, 'customer_cart.html', context)
 
@@ -2180,31 +2591,33 @@ def cart_api(request, customer_id):
             product = item.product
             # Determine price based on requested currency or fallback
             price_val = None
+            price_raw = None
             currency_note = None
-            try:
-                if currency == 'THB':
-                    price_val = Decimal(str(product.thai_baht or 0))
+            if currency == 'THB':
+                currency_note = 'THB'
+                price_raw = product.thai_baht
+                price_val = _parse_price_to_decimal(product.thai_baht)
+            elif currency == 'USD':
+                currency_note = 'USD'
+                price_raw = product.usd_rate
+                price_val = _parse_price_to_decimal(product.usd_rate)
+            elif currency == 'EUR':
+                currency_note = 'EUR'
+                price_raw = product.euro_rate
+                price_val = _parse_price_to_decimal(product.euro_rate)
+            else:
+                if product.thai_baht:
                     currency_note = 'THB'
-                elif currency == 'USD':
-                    price_val = Decimal(str(product.usd_rate or 0))
+                    price_raw = product.thai_baht
+                    price_val = _parse_price_to_decimal(product.thai_baht)
+                elif product.usd_rate:
                     currency_note = 'USD'
-                elif currency == 'EUR':
-                    price_val = Decimal(str(product.euro_rate or 0))
+                    price_raw = product.usd_rate
+                    price_val = _parse_price_to_decimal(product.usd_rate)
+                elif product.euro_rate:
                     currency_note = 'EUR'
-                else:
-                    # auto preferred fallback
-                    if product.thai_baht:
-                        price_val = Decimal(str(product.thai_baht))
-                        currency_note = 'THB'
-                    elif product.usd_rate:
-                        price_val = Decimal(str(product.usd_rate))
-                        currency_note = 'USD'
-                    elif product.euro_rate:
-                        price_val = Decimal(str(product.euro_rate))
-                        currency_note = 'EUR'
-            except Exception:
-                price_val = None
-                currency_note = None
+                    price_raw = product.euro_rate
+                    price_val = _parse_price_to_decimal(product.euro_rate)
 
             amount_val = None
             if price_val is not None:
@@ -2220,6 +2633,7 @@ def cart_api(request, customer_id):
                 'product_location': product.location,
                 'quantity': item.quantity,
                 'price': float(price_val) if price_val is not None else None,
+                'price_raw': (str(price_raw).strip() if price_raw is not None else None),
                 'currency_note': currency_note,
                 'amount': float(amount_val) if amount_val is not None else None,
                 'added_at': item.added_at.strftime('%Y-%m-%d %H:%M'),
@@ -2467,8 +2881,11 @@ def cart_android_api(request, customer_id):
                     'kpo': item.product.kpo,
                     'weight': item.product.weight,
                     'thai_baht': item.product.thai_baht,
+                    'thai_baht_value': (float(_parse_price_to_decimal(item.product.thai_baht)) if _parse_price_to_decimal(item.product.thai_baht) is not None else None),
                     'usd_rate': item.product.usd_rate,
+                    'usd_rate_value': (float(_parse_price_to_decimal(item.product.usd_rate)) if _parse_price_to_decimal(item.product.usd_rate) is not None else None),
                     'euro_rate': item.product.euro_rate,
+                    'euro_rate_value': (float(_parse_price_to_decimal(item.product.euro_rate)) if _parse_price_to_decimal(item.product.euro_rate) is not None else None),
                     'note_1': item.product.note_1,
                     'note_2': item.product.note_2,
                     'tag': item.product.tag.name if item.product.tag else '',
@@ -2476,13 +2893,16 @@ def cart_android_api(request, customer_id):
                     'image_count': item.product.images.count(),
                 }
 
+                price_dec = _parse_price_to_decimal(item.product.thai_baht)
+                price_num = float(price_dec) if price_dec is not None else 0.0
                 cart_items.append({
                     'id': item.id,
                     'product_id': item.product.id,
                     'product_code': f"{item.product.child_code}",
                     'product_name': f"{item.product.child_code}",
                     'product_location': item.product.location or '',
-                    'price': float(item.product.thai_baht) if item.product.thai_baht else 0.0,
+                    'price': price_num,
+                    'price_raw': (str(item.product.thai_baht).strip() if item.product.thai_baht is not None else ''),
                     'image_url': image_url,
                     'quantity': item.quantity,
                     'added_at': item.added_at.strftime('%Y-%m-%d %H:%M:%S'),
