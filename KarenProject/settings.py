@@ -25,12 +25,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-change-in-prod')
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-0c$=@q_1ko6*=p)()i!n*mbe4m+y7mn+rysrh+oe#c&$b(mj$s')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv(
+    "ALLOWED_HOSTS",
+    "localhost,127.0.0.1"
+).split(",")
 
 
 # Application definition
@@ -147,7 +149,10 @@ MEDIA_URL = '/media/'
 LOGIN_URL='login'
 LOGIN_REDIRECT_URL='login'
 
-CSRF_TRUSTED_ORIGINS = ['https://karen.tech-vikings.com']
+CSRF_TRUSTED_ORIGINS = [
+    "https://karensilverdesign.cloud",
+    "https://www.karensilverdesign.cloud",
+]
 
 REDIS_URL = os.getenv('REDIS_URL', '')
 if REDIS_URL:
@@ -169,12 +174,11 @@ else:
     }
 
 # CORS settings for mobile app
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = False
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://10.0.2.2:8000",  # Android emulator
+    "https://karensilverdesign.cloud",
+    "https://www.karensilverdesign.cloud",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -188,3 +192,23 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+
+    SESSION_COOKIE_SECURE = True
+
+    CSRF_COOKIE_SECURE = True
+
+    SECURE_BROWSER_XSS_FILTER = True
+
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+
+    X_FRAME_OPTIONS = "DENY"
+
+    SECURE_HSTS_SECONDS = 31536000
+
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+
+    SECURE_HSTS_PRELOAD = True

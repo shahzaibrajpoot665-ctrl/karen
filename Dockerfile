@@ -34,9 +34,6 @@ COPY . /app/
 # Create directories for static and media
 RUN mkdir -p /app/staticserve /app/media
 
-# Collect static files
-RUN python manage.py collectstatic --noinput || true
-
 # Copy and set permissions for entrypoint
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
