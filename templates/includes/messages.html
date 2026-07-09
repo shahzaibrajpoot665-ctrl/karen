@@ -1,0 +1,19 @@
+{% load static %}
+<!-- toasts -->
+<script src="{% static 'assets/libs/toastr/build/toastr.min.js' %}"></script>
+<script src="{% static 'assets/extra-libs/toastr/toastr-init.js' %}"></script>
+<script>
+    {% if messages %}
+        {% for message in messages %}
+            {% if message.tags == 'success'%}
+                toastr.success("{{ message }}", 'Success', { "closeButton": true });
+            {% elif message.tags == 'info' %}
+                toastr.info("{{ message }}", 'Information', { "closeButton": true });
+            {% elif message.tags == 'warning' %}
+                toastr.warning("{{ message }}", 'Warning', { "closeButton": true });
+            {% elif message.tags == 'error' %}
+                toastr.error("{{ message }}", 'Error', { "closeButton": true });
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+</script>

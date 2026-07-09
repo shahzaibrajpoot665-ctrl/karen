@@ -1,0 +1,18 @@
+/* Navbar logo glow styles */
+.navbar-brand .logo-glow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.00) 100%);
+}
+
+.navbar-brand .logo-img {
+  max-height: 42px;
+  height: 42px;
+  width: auto;
+  display: block;
+}
+
+@media (max-width: 576px) {
+  .navbar-brand .logo-img { max-height: 36px; height: 36px; }
+}

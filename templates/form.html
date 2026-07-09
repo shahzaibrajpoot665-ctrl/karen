@@ -1,0 +1,1320 @@
+{% load static %}
+{% include "includes/head.html" %}
+
+<!-- Preloader - style you can find in spinners.css -->
+    <div class="preloader">
+        <div class="lds-ripple">
+            <div class="lds-pos"></div>
+            <div class="lds-pos"></div>
+        </div>
+    </div>
+    <!-- Main wrapper - style you can find in pages.scss -->
+    <div id="main-wrapper">
+        <!-- Topbar header - style you can find in pages.scss -->
+        <header class="topbar">
+            {% include "includes/navbar.html" %}
+        </header>
+        <!-- End Topbar header -->
+        {% include "includes/aside.html" %}
+        <!-- End Left Sidebar - style you can find in sidebar.scss  -->
+
+        <!-- Page wrapper  -->
+        <div class="page-wrapper">
+            <!-- Container fluid  -->
+            <div class="container-fluid">
+                <!-- Start Page Content -->
+
+                <!-- Row -->
+                <div class="row">
+                    <div class="col-lg-12">
+                        <div class="card">
+                                <div class="form-body">
+                                    <div class="card-body">
+                                        <ul class="nav nav-pills m-t-30 m-b-30 d-flex align-items-center justify-content-between">
+                                            <div class="d-flex align-items-center">
+                                                <li class=" nav-item"> <a href="#navpills-1" class="nav-link active" data-toggle="tab" aria-expanded="false">Add Product</a> </li>
+                                                <li class="nav-item"> <a href="#navpills-2" class="nav-link" data-toggle="tab" aria-expanded="false">Import</a> </li>
+                                                <li class="nav-item"> <a href="#navpills-3" class="nav-link" data-toggle="tab" aria-expanded="false">Upload Images</a> </li>
+                                                <li class="nav-item"> <a href="#navpills-4" class="nav-link" data-toggle="tab" aria-expanded="false">Price Setting</a> </li>
+                                                <li class="nav-item"> <a href="{% url "image_management" %}" class="nav-link">Manage Images</a> </li>
+                                                <li class="nav-item"> <a href="{% url "pairing_set" %}" class="nav-link">Pairing Set</a> </li>
+                                            </div>
+                                            <li class="nav-item"><a href="{% url "export_excel" %}" class="btn btn-dark float-right">Export</a></li>
+                                        </ul>
+                                        <hr>
+                                        <h4 class="card-title mt-2"><i class="mdi mdi-package-variant-closed"></i> Product</h4>
+                                        <hr>
+                                        <div class="tab-content br-n pn">    
+                                            <a name='top'></a>
+                                            <form action="" method="POST" enctype="multipart/form-data" id="navpills-1" class="tab-pane active">
+                                                {% csrf_token %}
+                                                <div class="row mt-5">
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Parent Code</label>
+                                                            <input type="text" id="parent_code" name="parent_code" class="form-control" required>
+                                                        </div>
+                                                    </div>
+                                                    <!--/span-->
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Child Code</label>
+                                                            <input type="text" id="child_code" name="child_code" class="form-control" required>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Location</label>
+                                                            <input type="text" id="location" name="location" required class="form-control">
+                                                        </div>
+                                                    </div>
+                                                    <!--/span-->
+                                                </div>
+                                                <!--/row-->
+
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>QTY</label>
+                                                            <input type="text" id="stock" name="stock" required class="form-control">
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>Kpo</label>
+                                                            <input type="text" id="kpo" name="kpo" class="form-control">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>Weight</label>
+                                                            <input type="number" step="0.01" id="weight" name="weight" required class="form-control">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-12">
+                                                        <div class="form-group">
+                                                            <label>Pairing Set</label>
+                                                            <select class="select2 form-control" multiple="multiple" id="pairing_set" name="pairing_set" style="height: 36px;width: 100%;">
+                                                                {% for pair in pairing_set %}
+                                                                    <option value="{{pair.id}}">{{pair.pair_value}}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Category</label>
+                                                            <select id="tag_id" name="tag_id" class="form-control">
+                                                                <option value="">-- Select Category --</option>
+                                                                {% for t in tags %}
+                                                                    <option value="{{ t.id }}">{{ t.name }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Unit</label>
+                                                            <input type="text" id="unit" name="unit" class="form-control" placeholder="e.g., Pcs, Prs">
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Product Description</label>
+                                                            <textarea id="description" name="description" class="form-control" rows="3" placeholder="Enter product description"></textarea>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>Base</label>
+                                                            <input type="number" step="0.01" id="base" required name="base" class="form-control">
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>Increment</label>
+                                                            <input type="number" step="0.01" id="increment" required name="increment" class="form-control" value="0">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>Images</label>
+                                                            <div class="input-group mb-3">
+                                                                <div class="input-group-prepend">
+                                                                    <span class="input-group-text">Upload</span>
+                                                                </div>
+                                                                <div class="custom-file">
+                                                                    <input type="file" class="custom-file-input" id="inputGroupFile03" name="images" multiple>
+                                                                    <label class="custom-file-label" for="inputGroupFile03">Choose Images</label>
+                                                                </div>
+                                                            </div>
+                                                            <div id="existing-images" class="mt-3" style="display: none;">
+                                                                <label>Current Images:</label>
+                                                                <div id="image-preview-container" class="d-flex flex-wrap"></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>Note 1</label>
+                                                            <input type="text" step="0.01" id="note_1" name="note_1" required class="form-control">
+                                                        </div>
+                                                    </div>
+                                                    <!--/span-->
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label>Note 2</label>
+                                                            <input type="text" step="0.01" id="note_2" required name="note_2" class="form-control">
+                                                        </div>
+                                                    </div>
+                                                    <!--/span-->
+                                                </div>
+                                                <input type="hidden" name="type" id="type" value="create">
+                                                <input type="hidden" name="pro_id" id="pro_id">
+                                                <div class="form-actions">
+                                                    <div class="card-body">
+                                                        <button type="submit" class="btn btn-dark"> <i class="fa fa-check"></i> Save</button>
+                                                        <button type="button" class="btn btn-danger">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            </form>
+                                            <form action="" method="POST" enctype="multipart/form-data" id="navpills-2" class="tab-pane">
+                                                {% csrf_token %}
+                                                <div class="input-group mb-3">
+                                                    <div class="input-group-prepend">
+                                                        <span class="input-group-text">Upload File</span>
+                                                    </div>
+                                                    <div class="custom-file">
+                                                        <input type="file" required class="custom-file-input" id="inputGroupFile01" onchange="fileNameCheck(this)" name="xlsx_file" accept=".xlsx, .xls">
+                                                        <label class="custom-file-label namechange" for="inputGroupFile01">Choose file</label>
+                                                    </div>
+                                                </div>
+                                                <input type="hidden" name="type" id="type" value="bulk-create">
+                                                <div class="form-actions">
+                                                    <div class="card-body">
+                                                        <button type="submit" class="btn btn-dark"> <i class="fa fa-check"></i> Upload</button>
+                                                        <button type="button" class="btn btn-danger">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            </form>
+                                            <form action="{% url 'upload_bulk_images' %}" method="POST" enctype="multipart/form-data" id="navpills-3" class="tab-pane">
+                                                {% csrf_token %}
+                                                <div class="form-group">
+                                                    <input type="hidden" name="type" id="type" value="bulk-images">
+                                                    <div id="dropzone" class="dropzone dz-clickable">
+                                                        <div class="dz-message">
+                                                            <h3>Drop files here or click to upload</h3>
+                                                            <p>You can upload multiple images at once</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group mt-3">
+                                                    <div id="image-preview-container" class="row" style="display: none;">
+                                                        <div class="col-12">
+                                                            <h5>Selected Images:</h5>
+                                                            <div id="image-previews" class="d-flex flex-wrap gap-2"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-actions">
+                                                    <div class="card-body">
+                                                        <button type="submit" class="btn btn-dark" id="upload-btn" disabled> <i class="fa fa-check"></i> Upload</button>
+                                                        <button type="button" class="btn btn-danger" onclick="clearDropzone()">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            </form>    
+                                            <div id="navpills-4" class="tab-pane">
+                                                <div class="row mt-4">
+                                                    <div class="col-md-12">
+                                                        <h5 class="card-title">Global Price Settings</h5>
+                                                        <p class="text-muted">These values are used to compute product prices across all currencies. Formula: THB = Base + (Increment × Silver Price), USD = THB / USD Rate, EUR = THB / Euro Rate.</p>
+                                                    </div>
+                                                </div>
+                                                <div class="row mt-3">
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Silver Price</label>
+                                                            <input type="number" step="0.01" id="setting_silver_price" class="form-control" value="{{ price_setting.silver_price }}">
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>USD Rate</label>
+                                                            <input type="number" step="0.01" id="setting_usd_rate" class="form-control" value="{{ price_setting.usd_rate }}">
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="form-group">
+                                                            <label>Euro Rate</label>
+                                                            <input type="number" step="0.01" id="setting_euro_rate" class="form-control" value="{{ price_setting.euro_rate }}">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-actions">
+                                                    <div class="card-body">
+                                                        <button type="button" class="btn btn-dark" onclick="savePriceSettings()"> <i class="fa fa-check"></i> Save Settings</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                            </div>
+                        </div>
+
+                        <div class="card" id="products-section">
+                            <div class="col-12">
+                                <div class="card-body">
+                                    <div class="d-flex align-items-center justify-content-between">                                            
+                                        <h4 class="card-title">Products</h4>
+                                        <div class="d-flex align-items-center">
+                                            <button data-toggle="modal" data-target="#delete_all_products" onclick="delete_all_products()" class="btn btn-danger w-75 m-r-5">Delete Table</i></button>
+                                            <button class="btn btn-info m-r-5" onclick="toggleAdvancedSearch()">Advanced Search</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Advanced Search Panel -->
+                                    <div id="advanced-search-panel" class="card mt-3" style="display: none;">
+                                        <div class="card-body">
+                                            <h5 class="card-title">Advanced Search & Filter</h5>
+                                            <div class="row">
+                                                <div class="col-md-3">
+                                                    <label for="search-parent-code">Parent Code</label>
+                                                    <input type="text" id="search-parent-code" class="form-control" placeholder="Search parent code" onkeyup="performAdvancedSearch()">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label for="search-child-code">Child Code</label>
+                                                    <input type="text" id="search-child-code" class="form-control" placeholder="Search child code" onkeyup="performAdvancedSearch()">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label for="search-location">Location</label>
+                                                    <input type="text" id="search-location" class="form-control" placeholder="Search location" onkeyup="performAdvancedSearch()">
+                                                </div>
+                                            </div>
+                                            <div class="row mt-3">
+                                                <div class="col-md-3">
+                                                    <label for="search-kpo">KPO</label>
+                                                    <input type="text" id="search-kpo" class="form-control" placeholder="Search KPO" onkeyup="performAdvancedSearch()">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label for="price-min">Min Price (Thai Baht)</label>
+                                                    <input type="number" id="price-min" class="form-control" placeholder="Min price" onkeyup="performAdvancedSearch()">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label for="price-max">Max Price (Thai Baht)</label>
+                                                    <input type="number" id="price-max" class="form-control" placeholder="Max price" onkeyup="performAdvancedSearch()">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label for="sort-by">Sort By</label>
+                                                    <select id="sort-by" class="form-control" onchange="performAdvancedSearch()">
+                                                        <option value="">Default</option>
+                                                        <option value="parent_code">Parent Code</option>
+                                                        <option value="child_code">Child Code</option>
+                                                        <option value="location">Location</option>
+                                                        <option value="stock">Stock</option>
+                                                        <option value="thai_baht">Price</option>
+                                                        <option value="weight">Weight</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="row mt-3">
+                                                <div class="col-md-3">
+                                                    <label for="sort-order">Sort Order</label>
+                                                    <select id="sort-order" class="form-control" onchange="performAdvancedSearch()">
+                                                        <option value="asc">Ascending</option>
+                                                        <option value="desc">Descending</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-9 d-flex align-items-end">
+                                                    <button class="btn btn-primary mr-2" onclick="performAdvancedSearch()">Search</button>
+                                                    <button class="btn btn-secondary" onclick="clearAdvancedSearch()">Clear All</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th><input type="checkbox" id="select-all" onclick="selectAllCheckboxes(this)"></th>
+                                                <th scope="col">Image</th>
+                                                <th scope="col">Parent Code</th>
+                                                <th scope="col">Child Code</th>
+                                                <th scope="col">Location</th>
+                                                <th scope="col">QTY</th>
+                                                <th scope="col">Kpo</th>
+                                                <th scope="col">Weight</th>
+                                                <th scope="col">Thai Baht</th>
+                                                <th scope="col">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="text-gray-600 fw-semibold" id="client-card">
+														 
+                                        </tbody>
+                                    </table>
+                                    <ul class="pagination pagination-outline mt-2 mb-5 d-flex justify-content-end" id="pagination">
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="modal fade" id="delete_product" tabindex="-1" style="display: none;" role="dialog" aria-labelledby="prdoductdeleteCenterTitle" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered" role="document">
+                              <div class="modal-content">
+                                <div class="modal-header">
+                                    <h2 class="text-center text-dark">
+                                      Product
+                                    </h2>
+                                  </div>
+                                <div class="modal-body">
+                                  <h4 class="text-center text-dark">
+                                    Are you sure you want to delete it!
+                                  </h4>
+                                </div>
+                                <div class="modal-footer d-flex justify-content-center">
+                                  <button type="button" class="btn btn-dark text-white waves-effect mx-2" data-dismiss="modal">
+                                    No
+                                  </button>
+                                  <form action="" method="post">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="product_id" value="" id="id_for_delete_c">
+                                    <input type="hidden" name="type" value="delete">
+                                    <button type="submit" class="btn btn-primary waves-effect waves-light mx-2">Yes</button>
+                                  </form>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Image Gallery Modal -->
+                          <div class="modal fade" id="imageGalleryModal" tabindex="-1" role="dialog" aria-labelledby="imageGalleryModalLabel" aria-hidden="true">
+                            <div class="modal-dialog modal-lg" role="document">
+                              <div class="modal-content">
+                                <div class="modal-header">
+                                  <h5 class="modal-title" id="imageGalleryModalLabel">Product Images</h5>
+                                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                    <span aria-hidden="true">&times;</span>
+                                  </button>
+                                </div>
+                                <div class="modal-body">
+                                  <div id="imageCarousel" class="carousel slide" data-ride="carousel">
+                                    <div class="carousel-inner" id="carousel-images">
+                                      <!-- Images will be loaded here -->
+                                    </div>
+                                    <a class="carousel-control-prev" href="#imageCarousel" role="button" data-slide="prev">
+                                      <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                                      <span class="sr-only">Previous</span>
+                                    </a>
+                                    <a class="carousel-control-next" href="#imageCarousel" role="button" data-slide="next">
+                                      <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                                      <span class="sr-only">Next</span>
+                                    </a>
+                                  </div>
+                                  <div class="row mt-3" id="thumbnail-gallery">
+                                    <!-- Thumbnails will be loaded here -->
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="modal fade" id="delete_all_products" tabindex="-1" style="display: none;" role="dialog" aria-labelledby="prdoductdeleteCenterTitle" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered" role="document">
+                              <div class="modal-content">
+                                <div class="modal-header">
+                                    <h2 class="text-center text-dark">
+                                      Product
+                                    </h2>
+                                  </div>
+                                <div class="modal-body">
+                                  <h4 class="text-center text-dark">
+                                    Are you sure you want to delete Table!
+                                  </h4>
+                                </div>
+                                <div class="modal-footer d-flex justify-content-center">
+                                  <button type="button" class="btn btn-dark text-white waves-effect mx-2" data-dismiss="modal">
+                                    No
+                                  </button>
+                                  <form action="" method="post">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="type" value="delete_all_products">
+                                    <button type="submit" class="btn btn-primary waves-effect waves-light mx-2">Yes</button>
+                                  </form>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="modal fade" id="productImportProgressModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+                            <div class="modal-dialog modal-dialog-centered" role="document">
+                              <div class="modal-content">
+                                <div class="modal-header">
+                                  <h5 class="modal-title">Import Products</h5>
+                                </div>
+                                <div class="modal-body">
+                                  <div class="d-flex justify-content-between">
+                                    <div class="text-muted">Total rows</div>
+                                    <div class="font-weight-bold"><span id="importTotalRows">—</span></div>
+                                  </div>
+                                  <div class="d-flex justify-content-between mt-2">
+                                    <div class="text-muted">Uploaded</div>
+                                    <div class="font-weight-bold"><span id="importProcessedRows">0</span> / <span id="importTotalRows2">—</span></div>
+                                  </div>
+                                  <div class="progress mt-3" style="height: 10px;">
+                                    <div id="importProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                                  </div>
+                                  <div id="importStatusText" class="mt-3 text-muted d-flex align-items-center"></div>
+                                  <div class="mt-3">
+                                    <div class="d-flex justify-content-between">
+                                      <div class="text-muted">Summary</div>
+                                      <div class="font-weight-bold">
+                                        <span class="text-success">Success: <span id="importSuccessCount">0</span></span>
+                                        <span class="mx-2">|</span>
+                                        <span class="text-danger">Failed: <span id="importFailedCount">0</span></span>
+                                        <span class="mx-2">|</span>
+                                        <span class="text-muted">Skipped: <span id="importSkippedCount">0</span></span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div id="importErrorsWrap" class="mt-3" style="display:none;">
+                                    <div class="font-weight-bold text-danger mb-2">Failed Rows</div>
+                                    <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
+                                      <table class="table table-sm table-striped mb-0">
+                                        <thead>
+                                          <tr>
+                                            <th style="width: 90px;">Row</th>
+                                            <th style="width: 160px;">Child Code</th>
+                                            <th>Error</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody id="importErrorsBody"></tbody>
+                                      </table>
+                                    </div>
+                                    <div id="importErrorsTruncated" class="mt-2 text-muted" style="display:none;"></div>
+                                  </div>
+                                </div>
+                                <div class="modal-footer">
+                                  <button type="button" class="btn btn-secondary" id="importCloseBtn" data-dismiss="modal" disabled>Close</button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                    </div>
+                </div>
+                <!-- Row -->
+            </div>
+
+            <!-- footer aside -->
+            {% include "includes/footer_aside.html" %}
+            <!-- /footer aside -->
+
+        </div>
+        <!-- End Page wrapper  -->
+    </div>
+    <!-- End Wrapper -->
+
+    <div class="chat-windows"></div>
+    <script>
+        function delete_product(id){
+          document.getElementById("id_for_delete_c").value = id;
+        }
+        
+        // Image gallery functions
+        function openImageGallery(productId) {
+            // Fetch product images from API
+            $.ajax({
+                url: `/api/product/${productId}/images/`,
+                method: 'GET',
+                success: function(response) {
+                    displayImageGallery(response.images, response.product_name);
+                },
+                error: function() {
+                    // Fallback: get single image from current product data
+                    const productRow = $(`#client-row-${productId}`);
+                    const imgSrc = productRow.find('img').attr('src');
+                    if (imgSrc) {
+                        displayImageGallery([{url: imgSrc, alt: 'Product Image'}], 'Product');
+                    }
+                }
+            });
+        }
+        
+        function displayImageGallery(images, productName) {
+            const modal = $('#imageGalleryModal');
+            const carousel = modal.find('.carousel-inner');
+            const thumbnails = modal.find('.image-thumbnails');
+            
+            // Clear existing content
+            carousel.empty();
+            thumbnails.empty();
+            
+            // Set product name
+            modal.find('.modal-title').text(`${productName} - Images`);
+            
+            // Add images to carousel
+            images.forEach((image, index) => {
+                const isActive = index === 0 ? 'active' : '';
+                carousel.append(`
+                    <div class="carousel-item ${isActive}">
+                        <img src="${image.url}" class="d-block w-100" alt="${image.alt || 'Product Image'}" style="max-height: 500px; object-fit: contain;">
+                    </div>
+                `);
+                
+                // Add thumbnail
+                thumbnails.append(`
+                    <img src="${image.url}" class="img-thumbnail me-2 mb-2" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" 
+                         onclick="goToSlide(${index})" alt="Thumbnail ${index + 1}">
+                `);
+            });
+            
+            // Show modal
+            modal.modal('show');
+        }
+        
+        function goToSlide(slideIndex) {
+            $('#imageCarousel').carousel(slideIndex);
+        }
+
+        function savePriceSettings() {
+            const silverPrice = document.getElementById('setting_silver_price').value;
+            const usdRate = document.getElementById('setting_usd_rate').value;
+            const euroRate = document.getElementById('setting_euro_rate').value;
+            fetch('{% url "price_setting_api" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({
+                    silver_price: parseFloat(silverPrice) || 0,
+                    usd_rate: parseFloat(usdRate) || 1,
+                    euro_rate: parseFloat(euroRate) || 1
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Price settings updated successfully!');
+                } else {
+                    alert('Error: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                alert('Error saving price settings: ' + err.message);
+            });
+        }
+    </script>  
+{% include "includes/footer.html" %}
+{% include "includes/messages.html" %}
+
+<script>
+    function get_single_data(pro_id) {
+        axios.get(`/?pro_id=${pro_id}&get_req_type=individual`)
+        .then(function (response) {
+            const data = response.data;
+
+            console.log(data);
+
+            document.getElementById('parent_code').value = data.parent_code;
+            document.getElementById('child_code').value = data.child_code;
+            document.getElementById('location').value = data.location;
+            document.getElementById('stock').value = data.stock;
+            document.getElementById('kpo').value = data.kpo;
+            document.getElementById('weight').value = data.weight;
+            document.getElementById('base').value = data.base;
+            document.getElementById('increment').value = data.increment;
+            document.getElementById('note_1').value = data.note_1;
+            document.getElementById('note_2').value = data.note_2;
+            document.getElementById('description').value = data.description || '';
+            document.getElementById('unit').value = data.unit || '';
+            var tagSelect = document.getElementById('tag_id');
+            if (tagSelect && data.tag_id) {
+                tagSelect.value = String(data.tag_id);
+            }
+            document.getElementById('type').value = 'update';
+            document.getElementById('pro_id').value = pro_id;
+
+            var select = document.getElementById('pairing_set');
+            var valuesToSelect = data.pairing_set;
+            for (var i = 0; i < select.options.length; i++) {
+                if (valuesToSelect.includes(parseInt(select.options[i].value))) {
+                    select.options[i].selected = true;
+                }
+            }
+            
+            // Handle existing images
+            const imageContainer = document.getElementById('image-preview-container');
+            const existingImagesDiv = document.getElementById('existing-images');
+            imageContainer.innerHTML = '';
+            
+            if (data.images && data.images.length > 0) {
+                existingImagesDiv.style.display = 'block';
+                data.images.forEach(function(image) {
+                    const imgDiv = document.createElement('div');
+                    imgDiv.className = 'mr-2 mb-2';
+                    imgDiv.innerHTML = `<img src="${image.url}" alt="Product Image" class="img-thumbnail" style="max-width: 100px; max-height: 100px;">`;
+                    imageContainer.appendChild(imgDiv);
+                });
+            } else {
+                existingImagesDiv.style.display = 'none';
+            }
+            
+            $('.select2').select2();
+            })
+            
+            .catch(function (error) {
+            console.error(error);
+            });
+    };
+    $(document).ready(function(){
+        $('.nav-pills a').on('click', function(){
+            $('.nav-pills .nav-link').removeClass('active');
+            $(this).addClass('active');
+            var target = $(this).attr('href');
+            $('.tab-content > .tab-pane').removeClass('show active');
+            $(target).addClass('show active');
+            
+            // Hide products section for Import and Upload Images tabs
+            var productsSection = document.getElementById('products-section');
+            if (target === '#navpills-2' || target === '#navpills-3') {
+                productsSection.style.display = 'none';
+            } else {
+                productsSection.style.display = 'block';
+            }
+        });
+
+        let importPollTimer = null;
+        let importCompleted = false;
+        let lastRenderedFailedRows = 0;
+
+        function setImportStatus(html) {
+            $('#importStatusText').html(html);
+        }
+
+        function setImportProgress(processed, total) {
+            const safeTotal = total || 0;
+            const safeProcessed = processed || 0;
+            $('#importProcessedRows').text(safeProcessed);
+            $('#importTotalRows').text(safeTotal);
+            $('#importTotalRows2').text(safeTotal);
+            const pct = safeTotal > 0 ? Math.min(100, Math.round((safeProcessed / safeTotal) * 100)) : 0;
+            $('#importProgressBar').css('width', pct + '%').attr('aria-valuenow', pct);
+        }
+
+        function setImportCounts(successCount, failedCount, skippedCount) {
+            $('#importSuccessCount').text(successCount || 0);
+            $('#importFailedCount').text(failedCount || 0);
+            $('#importSkippedCount').text(skippedCount || 0);
+        }
+
+        function resetImportErrors() {
+            lastRenderedFailedRows = 0;
+            $('#importErrorsBody').empty();
+            $('#importErrorsWrap').hide();
+            $('#importErrorsTruncated').hide().text('');
+        }
+
+        function appendImportErrors(failedRows) {
+            if (!failedRows || failedRows.length === 0) {
+                return;
+            }
+
+            $('#importErrorsWrap').show();
+            const tbody = $('#importErrorsBody');
+            for (let i = lastRenderedFailedRows; i < failedRows.length; i++) {
+                const r = failedRows[i] || {};
+                const rowNum = (r.row !== undefined && r.row !== null) ? r.row : '';
+                const childCode = r.child_code || '';
+                const err = r.error || '';
+                tbody.append(`<tr><td>${rowNum}</td><td>${childCode}</td><td>${err}</td></tr>`);
+            }
+            lastRenderedFailedRows = failedRows.length;
+        }
+
+        function stopImportPolling() {
+            if (importPollTimer) {
+                clearInterval(importPollTimer);
+                importPollTimer = null;
+            }
+        }
+
+        function pollImportStatus(importId) {
+            $.ajax({
+                url: '{% url "product_import_status" %}',
+                method: 'GET',
+                data: { import_id: importId },
+                success: function (resp) {
+                    if (!resp.success) {
+                        stopImportPolling();
+                        setImportStatus(resp.message || 'Import status error');
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+
+                    setImportProgress(resp.processed_rows, resp.total_rows);
+                    setImportCounts(resp.success_count, resp.failed_count, resp.skipped_count);
+                    appendImportErrors(resp.failed_rows);
+                    if (resp.failed_rows_truncated) {
+                        const extra = resp.failed_rows_truncated_count || 0;
+                        $('#importErrorsTruncated').show().text(`Some errors were not listed (${extra} additional).`);
+                    }
+
+                    if (resp.status === 'done') {
+                        importCompleted = true;
+                        stopImportPolling();
+                        if ((resp.failed_count || 0) > 0) {
+                            setImportStatus('Import completed with some errors.');
+                        } else {
+                            setImportStatus('Import completed successfully.');
+                        }
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+
+                    if (resp.status === 'error') {
+                        stopImportPolling();
+                        setImportStatus(resp.message || 'Import failed');
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+                },
+                error: function () {
+                    stopImportPolling();
+                    setImportStatus('Error checking import status');
+                    $('#importCloseBtn').prop('disabled', false);
+                }
+            });
+        }
+
+        $('#productImportProgressModal').on('hidden.bs.modal', function () {
+            stopImportPolling();
+            if (importCompleted) {
+                window.location.reload();
+            }
+        });
+
+        $('#navpills-2').on('submit', function (e) {
+            e.preventDefault();
+            importCompleted = false;
+            $('#importCloseBtn').prop('disabled', true);
+            setImportProgress(0, 0);
+            setImportCounts(0, 0, 0);
+            resetImportErrors();
+            setImportStatus('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Preparing import…');
+            $('#productImportProgressModal').modal('show');
+
+            const form = this;
+            const formData = new FormData(form);
+
+            $.ajax({
+                url: '{% url "product_import_start" %}',
+                method: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function (resp) {
+                    if (!resp.success) {
+                        setImportStatus(resp.message || 'Import failed to start');
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+
+                    setImportProgress(0, resp.total_rows);
+                    setImportStatus('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Uploading rows…');
+
+                    stopImportPolling();
+                    pollImportStatus(resp.import_id);
+                    importPollTimer = setInterval(function () {
+                        pollImportStatus(resp.import_id);
+                    }, 600);
+                },
+                error: function (xhr) {
+                    let msg = 'Import failed to start';
+                    try {
+                        const data = xhr.responseJSON;
+                        if (data && data.message) msg = data.message;
+                    } catch (err) {}
+                    setImportStatus(msg);
+                    $('#importCloseBtn').prop('disabled', false);
+                }
+            });
+        });
+    });
+
+    Dropzone.autoDiscover = false;
+    const myDropzone = new Dropzone("#dropzone", {
+        url: "/upload_bulk_images/",
+        paramName: "file",
+        maxFiles: 50,
+        maxFilesize: 50,
+        acceptedFiles: "image/*",
+        addRemoveLinks: true,
+        dictRemoveFile: "Remove",
+        autoProcessQueue: false,
+        parallelUploads: 50,
+        createImageThumbnails: true,
+        thumbnailWidth: 120,
+        thumbnailHeight: 120,
+
+        init: function() {
+            var myDropzone = this;
+            var uploadBtn = document.getElementById('upload-btn');
+            var previewContainer = document.getElementById('image-preview-container');
+            var previewsDiv = document.getElementById('image-previews');
+
+            document.querySelector("form#navpills-3").addEventListener("submit", function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (myDropzone.getQueuedFiles().length > 0) {
+                    myDropzone.processQueue();
+                } else {
+                    alert("Please add files before uploading!");
+                }
+            });
+
+            this.on("addedfile", function(file) {
+                if (myDropzone.files.length > 0) {
+                    uploadBtn.disabled = false;
+                    previewContainer.style.display = 'block';
+                }
+                
+                // Create custom preview
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    var imgDiv = document.createElement('div');
+                    imgDiv.className = 'position-relative m-2';
+                    imgDiv.innerHTML = `
+                        <img src="${e.target.result}" class="img-thumbnail" style="width: 100px; height: 100px; object-fit: cover;">
+                        <button type="button" class="btn btn-danger btn-sm position-absolute" style="top: -5px; right: -5px; width: 20px; height: 20px; padding: 0; border-radius: 50%;" onclick="removePreview(this, '${file.name}')">
+                            <i class="fa fa-times" style="font-size: 10px;"></i>
+                        </button>
+                        <div class="text-center mt-1" style="font-size: 10px;">${file.name}</div>
+                    `;
+                    previewsDiv.appendChild(imgDiv);
+                };
+                reader.readAsDataURL(file);
+            });
+
+            this.on("removedfile", function(file) {
+                if (myDropzone.files.length === 0) {
+                    uploadBtn.disabled = true;
+                    previewContainer.style.display = 'none';
+                    previewsDiv.innerHTML = '';
+                }
+            });
+
+            this.on("success", function(file, response) {
+                 console.log("Successfully uploaded:", response);
+                 if (response.success) {
+                     // Show detailed results
+                     showUploadResults(response);
+                 }
+             });
+ 
+             this.on("error", function(file, errorMessage) {
+                 console.error("Upload error:", errorMessage);
+                 alert('Upload failed: ' + errorMessage);
+             });
+ 
+             this.on("queuecomplete", function() {
+                 setTimeout(() => {
+                     location.reload();
+                 }, 3000); // Give time to show results
+             });
+        }
+    });
+
+    function clearDropzone() {
+        myDropzone.removeAllFiles();
+        document.getElementById('upload-btn').disabled = true;
+        document.getElementById('image-preview-container').style.display = 'none';
+        document.getElementById('image-previews').innerHTML = '';
+    }
+
+    function removePreview(button, fileName) {
+         // Find and remove the file from dropzone
+         var fileToRemove = myDropzone.files.find(file => file.name === fileName);
+         if (fileToRemove) {
+             myDropzone.removeFile(fileToRemove);
+         }
+         // Remove the preview element
+         button.parentElement.remove();
+     }
+
+     function showUploadResults(response) {
+         let resultHtml = `
+             <div class="alert alert-success alert-dismissible fade show" role="alert">
+                 <h5><i class="fa fa-check-circle"></i> Upload Complete!</h5>
+                 <p><strong>${response.message}</strong></p>
+                 <div class="mt-3">
+                     <h6>Upload Summary:</h6>
+                     <ul class="list-unstyled">
+         `;
+         
+         response.results.forEach(result => {
+             if (result.status === 'uploaded') {
+                 resultHtml += `<li><i class="fa fa-check text-success"></i> <strong>${result.name}</strong> - Uploaded successfully`;
+                 if (result.linked_products.length > 0) {
+                     resultHtml += ` (Linked to: ${result.linked_products.join(', ')})`;
+                 }
+                 resultHtml += `</li>`;
+             } else if (result.status === 'already_exists') {
+                 resultHtml += `<li><i class="fa fa-info-circle text-info"></i> <strong>${result.name}</strong> - Already exists</li>`;
+             } else if (result.status === 'error') {
+                 resultHtml += `<li><i class="fa fa-exclamation-triangle text-warning"></i> <strong>${result.name}</strong> - Error: ${result.error}</li>`;
+             }
+         });
+         
+         resultHtml += `
+                     </ul>
+                 </div>
+                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+             </div>
+         `;
+         
+         // Insert the result at the top of the upload form
+         const uploadForm = document.getElementById('navpills-3');
+         uploadForm.insertAdjacentHTML('afterbegin', resultHtml);
+     }
+
+
+    function showclients(client_data) {
+        $('#client-card').empty();
+        if (client_data.length > 0) {
+            client_data.forEach(prod => {
+                let profile_url = `product_detail/${prod.id}`;
+
+                // Create image display with gallery functionality
+                let imageDisplay = '-';
+                if (prod.image) {
+                    if (prod.image_count > 1) {
+                        imageDisplay = `
+                            <div class="position-relative">
+                                <img src="${prod.image}" alt="Product Image" class="img-thumbnail" style="max-width: 100px; max-height: 100px; cursor: pointer;" onclick="openImageGallery(${prod.id})">
+                                <span class="badge badge-primary position-absolute" style="top: 5px; right: 5px; font-size: 10px;">${prod.image_count}</span>
+                                <div class="position-absolute" style="bottom: 5px; right: 5px;">
+                                    <i class="fa fa-images text-white" style="background: rgba(0,0,0,0.5); padding: 2px; border-radius: 3px;"></i>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        imageDisplay = `<img src="${prod.image}" alt="Product Image" class="img-thumbnail" style="max-width: 100px; max-height: 100px; cursor: pointer;" onclick="openImageGallery(${prod.id})">`;
+                    }
+                }
+                
+                $('#client-card').append(
+                    `
+                    <tr id="client-row-${prod.id}">
+                        <td><input type="checkbox" class="select-checkbox" value="${prod.id}" onclick="toggleDeleteButton()"></td>
+                        <td>${imageDisplay}</td>
+                        <td>${prod.parent_code}</td>
+                        <td>${prod.child_code}</td>
+                        <td>${prod.location}</td>
+                        <td>${prod.stock}</td>
+                        <td>${prod.kpo}</td>
+                        <td>${prod.weight}</td>
+                        <td>${prod.thai_baht}</td>            
+                            <td> 
+                            <div class="d-flex">
+                                <a href="${profile_url}" style="margin-right: 5px;" class="btn btn-dark me-2"><i class="ti-eye"></i></a>
+                                <a href="#top"><button class="btn btn-primary me-2" style="margin-right: 5px;" onclick="get_single_data('${prod.id}')"><i class="ti-pencil-alt"></i></button></a>
+                                <button data-toggle="modal" data-target="#delete_product" onclick="delete_product('${prod.id}')" class="btn btn-danger"><i class="ti-trash" aria-hidden="true"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                    `
+                );
+            });
+            $('#client-card').after(`
+            <button id="delete-selected-btn" class="btn btn-danger mt-3 d-none" onclick="deleteSelectedProducts()">Delete Selected</button>
+            <button id="export-selected-btn" class="btn btn-dark mt-3 d-none" onclick="exportSelectedProducts()">Export Selected</button>
+        `);
+        } else {
+            $('#client-card').empty();
+            $('#client-card').append(
+                `
+                <p class="text-center text-muted mb-5 pb-5">
+                    No data found.
+                </p>
+                `
+            );
+        }
+    }
+
+    async function getData() {
+        let urlS = new URL(window.location.href);
+        let idParam = urlS.searchParams.get("id");
+        const queryParams = getFormattedQueryParams();
+        const url = `product_api?id=${idParam}&${queryParams.replace('?','')}`;
+        
+        const response = await $.getJSON(url);
+        showclients(response.results);
+        if (response.results.length > 0) {
+            setPagination(response.pagination, getData);
+        }
+    }
+    getData();
+    function searchchildcode(item){
+        updateURLParameter("childcode", item.value);
+        getData();
+    }
+    function toggleDeleteButton() {
+        const selectedCheckboxes = document.querySelectorAll('.select-checkbox:checked');
+        const deleteButton = document.getElementById('delete-selected-btn');
+        const exportButton = document.getElementById('export-selected-btn');
+        if (selectedCheckboxes.length > 0) {
+            deleteButton.classList.remove('d-none');
+            exportButton.classList.remove('d-none');
+        } else {
+            deleteButton.classList.add('d-none');
+            exportButton.classList.add('d-none');
+        }
+    }
+    
+    function deleteSelectedProducts() {
+        const checkboxes = document.querySelectorAll('.select-checkbox:checked');
+        
+        const selectedIds = Array.from(checkboxes)
+            .map(cb => cb.value) 
+            .filter(id => id && id !== 'undefined' && !isNaN(id));
+    
+        console.log("Selected IDs:", selectedIds); 
+    
+        if (selectedIds.length === 0) {
+            alert("No products selected for deletion.");
+            return; 
+        }
+        
+        if (confirm('Are you sure you want to delete the selected items?')) {
+            fetch(window.location.href, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({ ids: selectedIds, type: 'bulk-delete' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    selectedIds.forEach(id => document.getElementById(`client-row-${id}`).remove());
+                    toggleDeleteButton(); 
+                } else {
+                    console.error('Error: Bulk delete unsuccessful.');
+                    alert("An error occurred during deletion.");
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("An error occurred while deleting the selected products.");
+            });
+        }
+    }
+ 
+    function exportSelectedProducts() {
+    const checkboxes = document.querySelectorAll('.select-checkbox:checked');
+    
+    const selectedIds = Array.from(checkboxes)
+        .map(cb => cb.value) 
+        .filter(id => id && id !== 'undefined' && !isNaN(id));
+    
+    if (selectedIds.length === 0) {
+        alert("No products selected for export.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    selectedIds.forEach(id => formData.append('ids[]', id));
+
+    fetch('{% url "export_selected_to_excel" %}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (response.ok) {
+            return response.blob();
+        } else {
+            throw new Error('Failed to export selected products.');
+        }
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'selected_products.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    })
+    .catch(error => {
+        console.error(error);
+        alert("An error occurred while exporting the selected products.");
+    });
+}
+
+    function selectAllCheckboxes(selectAllCheckbox) {
+        const checkboxes = document.querySelectorAll('.select-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = selectAllCheckbox.checked;
+        });
+        toggleDeleteButton();
+    }
+
+    function fileNameCheck(inputElement) {
+        const fileLabel = document.querySelector('.namechange');
+        const fileName = inputElement.files[0]?.name || "Choose file";
+        fileLabel.textContent = fileName;
+    }
+
+    // Advanced Search Functions
+    function toggleAdvancedSearch() {
+        const panel = document.getElementById('advanced-search-panel');
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    function performAdvancedSearch() {
+        const searchParams = {
+            parent_code: document.getElementById('search-parent-code').value,
+            child_code: document.getElementById('search-child-code').value,
+            location: document.getElementById('search-location').value,
+            kpo: document.getElementById('search-kpo').value,
+            price_min: document.getElementById('price-min').value,
+            price_max: document.getElementById('price-max').value,
+            sort_by: document.getElementById('sort-by').value,
+            sort_order: document.getElementById('sort-order').value
+        };
+
+        // Update URL parameters
+        const url = new URL(window.location);
+        Object.keys(searchParams).forEach(key => {
+            if (searchParams[key]) {
+                url.searchParams.set(key, searchParams[key]);
+            } else {
+                url.searchParams.delete(key);
+            }
+        });
+        
+        // Update browser URL without reload
+        window.history.pushState({}, '', url);
+        
+        // Trigger data reload
+        getData();
+    }
+
+    function clearAdvancedSearch() {
+        document.getElementById('search-parent-code').value = '';
+        document.getElementById('search-child-code').value = '';
+        document.getElementById('search-location').value = '';
+        document.getElementById('search-kpo').value = '';
+        document.getElementById('price-min').value = '';
+        document.getElementById('price-max').value = '';
+        document.getElementById('sort-by').value = '';
+        document.getElementById('sort-order').value = 'asc';
+        
+        // Clear URL parameters
+        const url = new URL(window.location);
+        ['parent_code', 'child_code', 'location', 'kpo', 'price_min', 'price_max', 'sort_by', 'sort_order'].forEach(param => {
+            url.searchParams.delete(param);
+        });
+        window.history.pushState({}, '', url);
+        
+        // Reload data
+        getData();
+    }
+
+    // Update the existing searchchildcode function to work with new system
+    function searchchildcode(item) {
+        document.getElementById('search-child-code').value = item.value;
+        performAdvancedSearch();
+    }
+
+    // Cancel button functionality to reset forms
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get all Cancel buttons
+        const cancelButtons = document.querySelectorAll('.btn-danger');
+        
+        cancelButtons.forEach(function(button) {
+            if (button.textContent.trim() === 'Cancel') {
+                button.addEventListener('click', function() {
+                    // Find the parent form
+                    const form = this.closest('form');
+                    if (form) {
+                        // Reset the form
+                        form.reset();
+                        
+                        // Handle specific form resets based on form ID
+                        const formId = form.id;
+                        
+                        if (formId === 'navpills-1') {
+                            // Reset Add Product form
+                            // Clear select2 elements
+                            if (typeof $('#pairing_set').select2 === 'function') {
+                                $('#pairing_set').val(null).trigger('change');
+                            }
+                            
+                            // Clear file input labels
+                            const fileLabel = form.querySelector('.custom-file-label');
+                            if (fileLabel) {
+                                fileLabel.textContent = 'Choose Images';
+                            }
+                            
+                            // Hide existing images preview
+                            const existingImages = document.getElementById('existing-images');
+                            if (existingImages) {
+                                existingImages.style.display = 'none';
+                            }
+                            
+                            // Clear image preview container
+                            const imagePreviewContainer = document.getElementById('image-preview-container');
+                            if (imagePreviewContainer) {
+                                imagePreviewContainer.innerHTML = '';
+                            }
+                            
+                            // Reset hidden fields
+                            document.getElementById('type').value = 'create';
+                            document.getElementById('pro_id').value = '';
+                        }
+                        
+                        else if (formId === 'navpills-2') {
+                            // Reset Import form
+                            const fileLabel = form.querySelector('.custom-file-label');
+                            if (fileLabel) {
+                                fileLabel.textContent = 'Choose file';
+                            }
+                        }
+                        
+                        else if (formId === 'navpills-3') {
+                            // Reset Upload Images form - handled by existing clearDropzone function
+                            if (typeof clearDropzone === 'function') {
+                                clearDropzone();
+                            }
+                        }
+                        
+                        // Show success message
+                        console.log('Form reset successfully');
+                    }
+                });
+            }
+        });
+    });
+</script>

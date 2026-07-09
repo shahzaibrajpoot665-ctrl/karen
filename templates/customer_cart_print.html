@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart - {{ customer.name }} (ID: {{ customer.id }})</title>
+    <style>
+        @media print {
+            body { margin: 0; }
+            .no-print { display: none !important; }
+            .page-break { page-break-before: always; }
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+            margin: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #366092;
+            padding-bottom: 15px;
+        }
+        
+        .header h1 {
+            color: #366092;
+            margin: 0;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .header h2 {
+            color: #666;
+            margin: 5px 0;
+            font-size: 18px;
+            font-weight: normal;
+        }
+        
+        .customer-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #366092;
+        }
+        
+        .customer-info h3 {
+            margin: 0 0 10px 0;
+            color: #366092;
+            font-size: 16px;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        
+        .info-label {
+            font-weight: bold;
+            color: #555;
+        }
+        
+        .cart-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .cart-table th {
+            background-color: #000;
+            color: #fff;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: bold;
+            border: 1px solid #000;
+        }
+        
+        .cart-table td {
+            padding: 10px 8px;
+            border: 1px solid #000;
+            vertical-align: top;
+        }
+        
+        .cart-table tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .cart-table tbody tr:hover {
+            background-color: #e3f2fd;
+        }
+        
+        .product-code {
+            font-weight: bold;
+            color: #366092;
+        }
+        
+        .quantity-badge {
+            background-color: #28a745;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        
+        .summary-section {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            border: 2px solid #366092;
+            margin-top: 20px;
+        }
+        
+        .summary-section h3 {
+            margin: 0 0 15px 0;
+            color: #366092;
+            font-size: 18px;
+            text-align: center;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+            text-align: center;
+        }
+        
+        .summary-item {
+            background-color: white;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        
+        .summary-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #366092;
+            display: block;
+        }
+        
+        .summary-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #666;
+            font-size: 10px;
+            border-top: 1px solid #ddd;
+            padding-top: 15px;
+        }
+        
+        .print-button {
+            background-color: #366092;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .print-button:hover {
+            background-color: #2c4f7c;
+        }
+        
+        .empty-cart {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 40px;
+        }
+        
+        .notes-column {
+            max-width: 150px;
+            word-wrap: break-word;
+        }
+        
+        @media print {
+            * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .cart-table {
+                border: 1px solid #000 !important;
+            }
+            .cart-table th {
+                background-color: #fff !important;
+                color: #000 !important;
+                border-color: #000 !important;
+            }
+            .cart-table td {
+                border-color: #000 !important;
+            }
+            .summary-grid {
+                display: block;
+            }
+            
+            .summary-item {
+                display: inline-block;
+                width: 30%;
+                margin: 0 1.5%;
+                vertical-align: top;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <button class="print-button" onclick="window.print()">
+            🖨️ Print Cart
+        </button>
+        <button class="print-button" onclick="window.close()" style="background-color: #6c757d;">
+            ✖️ Close
+        </button>
+    </div>
+
+    {% load static %}
+    <div style="margin-bottom:8px;">
+        <img src="{% static 'assets/images/transparent logo.png' %}" alt="Karen Silver Design" style="height:60px;">
+    </div>
+
+    <table style="width:100%; border-collapse:collapse; margin-bottom:12px; font-size:12px;">
+        <tr>
+            <td style="width:50%; border:1px solid #000; padding:8px; vertical-align:top;">
+                <div style="font-weight:700; text-transform:uppercase; margin-bottom:6px;">Customer Info</div>
+                <div>Name: {{ customer.name }}</div>
+                <div>Company Name: {{ customer.company_name }}</div>
+                <div>Address: {{ address_display }}</div>
+                <div>Phone: {{ customer.phone }}</div>
+                <div>Email: {{ customer.email }}</div>
+            </td>
+            <td style="width:50%; border:1px solid #000; padding:8px; vertical-align:top;">
+                <div style="font-weight:700; text-transform:uppercase; margin-bottom:6px;">Document Info</div>
+                <div>Date: {{ print_date|date:"Y-m-d H:i" }}</div>
+                <div>Salesperson: {{ salesperson_name }}</div>
+                <div>Doc. Ref.: {{ doc_ref }}</div>
+                <div>Customer Code: {{ customer_code }}</div>
+                <div>Shipping: {{ currency_label }} {{ shipping|floatformat:2 }}</div>
+                <div>Deposit: {{ currency_label }} {{ deposit|floatformat:2 }}</div>
+            </td>
+        </tr>
+    </table>
+
+    {% if items_for_print %}
+    <table class="cart-table" style="border:1px solid #000;">
+        <thead>
+            <tr>
+                {% for col in selected_columns %}
+                    {% if col == 'product_code' %}<th>Product Code</th>
+                    {% elif col == 'picture' %}<th>Picture</th>
+                    {% elif col == 'name' %}<th>Product Name</th>
+                    {% elif col == 'wt_g' %}<th>WT. (g)</th>
+                    {% elif col == 'qty' %}<th>Quantity</th>
+                    {% elif col == 'price_thb' %}<th>Unit Price ({{ currency_label }})</th>
+                    {% elif col == 'amount_thb' %}<th>Total Price ({{ currency_label }})</th>
+                    {% elif col == 'location' %}<th>Location</th>
+                    {% elif col == 'kpo' %}<th>KPO</th>
+                    {% elif col == 'pairing_set' %}<th>Pairing Set</th>
+                    {% elif col == 'note1' %}<th>Note 1</th>
+                    {% elif col == 'note2' %}<th>Note 2</th>
+                    {% elif col == 'thb' %}<th>THB</th>
+                    {% elif col == 'usd' %}<th>USD</th>
+                    {% elif col == 'euro' %}<th>EURO</th>
+                    {% endif %}
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for it in items_for_print %}
+            <tr>
+                {% for col in selected_columns %}
+                    {% if col == 'product_code' %}<td class="product-code">{{ it.code }}</td>
+                    {% elif col == 'picture' %}
+                        <td style="text-align:center;">
+                            {% if it.image_url %}<img src="{{ it.image_url }}" alt="" style="height:40px;">{% else %}No Image{% endif %}
+                        </td>
+                    {% elif col == 'name' %}<td>{{ it.name }}</td>
+                    {% elif col == 'wt_g' %}<td>{{ it.weight|floatformat:2 }}</td>
+                    {% elif col == 'qty' %}<td>{{ it.quantity }}</td>
+                    {% elif col == 'price_thb' %}<td>{{ currency_label }} {{ it.unit|floatformat:2 }}</td>
+                    {% elif col == 'amount_thb' %}<td>{{ currency_label }} {{ it.amount|floatformat:2 }}</td>
+                    {% elif col == 'location' %}<td>{{ it.location }}</td>
+                    {% elif col == 'kpo' %}<td>{{ it.kpo }}</td>
+                    {% elif col == 'pairing_set' %}<td>{{ it.pairing_set }}</td>
+                    {% elif col == 'note1' %}<td>{{ it.note1 }}</td>
+                    {% elif col == 'note2' %}<td>{{ it.note2 }}</td>
+                    {% elif col == 'thb' %}<td>{{ it.thb|floatformat:2 }}</td>
+                    {% elif col == 'usd' %}<td>{{ it.usd|floatformat:2 }}</td>
+                    {% elif col == 'euro' %}<td>{{ it.eur|floatformat:2 }}</td>
+                    {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Totals table (black rows) -->
+    <table style="width:100%; border-collapse:collapse; margin-top:12px; font-size:12px;">
+        <tr style="color:#000;">
+            <td style="padding:6px; border:1px solid #000;">Total</td>
+            <td style="padding:6px; border:1px solid #000; text-align:right;">{{ currency_label }} {{ total_amount|floatformat:2 }}</td>
+        </tr>
+        <tr style="color:#000;">
+            <td style="padding:6px; border:1px solid #000;">Shipping</td>
+            <td style="padding:6px; border:1px solid #000; text-align:right;">{{ currency_label }} {{ shipping|floatformat:2 }}</td>
+        </tr>
+        <tr style="color:#000;">
+            <td style="padding:6px; border:1px solid #000;">Deposit</td>
+            <td style="padding:6px; border:1px solid #000; text-align:right;">{{ currency_label }} {{ deposit|floatformat:2 }}</td>
+        </tr>
+        <tr style="color:#000;">
+            <td style="padding:6px; border:1px solid #000;"><strong>Grand Total</strong></td>
+            <td style="padding:6px; border:1px solid #000; text-align:right;"><strong>{{ currency_label }} {{ grand_total|floatformat:2 }}</strong></td>
+        </tr>
+    </table>
+
+    <!-- Summary section (black bar + lines) -->
+    <div style="margin-top:12px; background:#000; color:#fff; padding:8px; font-weight:700; text-transform:uppercase;">SUMMARY</div>
+    <table style="width:100%; border-collapse:collapse; margin-top:8px; font-size:12px;">
+        <tr>
+            <td style="width:55%; vertical-align:top; padding-right:12px;">
+                <div>Total Items: {{ total_items }} Pcs.</div>
+                <div>Total Quantity: {{ total_quantity }} Pcs.</div>
+                <div>Total Net Weight: {{ total_weight|floatformat:2 }} g.</div>
+                <div>Total Gross Weight: {{ cart.gross_weight|floatformat:2 }} g.</div>
+                <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Category</div>
+                <div>Earring: {{ earring_count }} Prs.</div>
+                <div>Ring: {{ ring_count }} Pcs.</div>
+                <div>Bracelet and Bangle: {{ bracelet_bangle_count }} Pcs.</div>
+                <div>Necklace: {{ necklace_count }} Pcs.</div>
+                <div>Other Accessories (Ex. Beads): {{ others_count }} Pcs.</div>
+                <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Notes</div>
+                <div>{{ cart.notes }}</div>
+            </td>
+            <td style="width:45%; vertical-align:top;">
+                <div style="border:1px solid #000; min-height:220px; padding:10px;">
+                    <div style="font-weight:700; text-transform:uppercase; margin-bottom:6px; text-align:center;">Notes</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+    {% else %}
+        <div class="empty-cart">
+            <h3>🛒 Cart is Empty</h3>
+            <p>No items have been added to this customer's cart yet.</p>
+        </div>
+    {% endif %}
+
+    <div class="footer">
+        <p>Generated by Karen Inventory Management System | Print Date: {{ print_date|date:"Y-m-d H:i:s" }}</p>
+        <p>This document contains confidential information. Please handle with care.</p>
+    </div>
+
+    <script>
+        // Auto-open the browser print dialog when the page loads
+        window.onload = function() {
+            try {
+                // Small delay to ensure images/fonts are ready
+                setTimeout(function(){ window.print(); }, 150);
+            } catch(e) {
+                // If auto-print fails, user can click the Print button
+            }
+        };
+        
+        // Handle keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'p') {
+                e.preventDefault();
+                window.print();
+            }
+            if (e.key === 'Escape') {
+                window.close();
+            }
+        });
+    </script>
+</body>
+</html>

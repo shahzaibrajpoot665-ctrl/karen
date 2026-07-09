@@ -1,0 +1,25 @@
+<!-- ============================================================== -->
+<aside class="left-sidebar">
+    <!-- Sidebar scroll-->
+    <div class="scroll-sidebar">
+        <!-- Sidebar navigation-->
+        <nav class="sidebar-nav">
+            <ul id="sidebarnav">
+                <!-- Dashboard -->
+                {% comment %} <li class="sidebar-item"> <a class="sidebar-link waves-effect waves-dark" href="{% url "index" %}" aria-expanded="false"><i class="mdi mdi-view-dashboard"></i><span class="hide-menu">Dashboard </span></a>
+                </li> {% endcomment %}
+                <li class="sidebar-item"> 
+                    <a class="sidebar-link two-column waves-effect waves-dark" href="{% url "form" %}" aria-expanded="false"><i class="mdi mdi-package-variant-closed"></i><span class="hide-menu">Product </span></a>
+                </li>
+                <li class="sidebar-item">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'cart_management' %}" aria-expanded="false">
+                        <i class="mdi mdi-cart"></i>
+                        <span class="hide-menu">Cart Management</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        <!-- End Sidebar navigation -->
+    </div>
+    <!-- End Sidebar scroll-->
+</aside>

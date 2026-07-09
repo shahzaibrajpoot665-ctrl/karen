@@ -1,0 +1,161 @@
+{% load static %} {% include "includes/head.html" %}
+
+<!-- Preloader - style you can find in spinners.css -->
+<div class="preloader">
+  <div class="lds-ripple">
+    <div class="lds-pos"></div>
+    <div class="lds-pos"></div>
+  </div>
+</div>
+<!-- Main wrapper - style you can find in pages.scss -->
+<div id="main-wrapper">
+  <!-- Topbar header - style you can find in pages.scss -->
+  <header class="topbar">{% include "includes/navbar.html" %}</header>
+  <!-- End Topbar header -->
+  {% include "includes/aside.html" %}
+  <!-- End Left Sidebar - style you can find in sidebar.scss  -->
+
+  <!-- Page wrapper  -->
+  <div class="page-wrapper">
+    <!-- Container fluid  -->
+    <div class="container-fluid">
+      <!-- Start Page Content -->
+
+      <!-- Row -->
+      <div class="row">
+        <div class="col-lg-12">
+          <div class="card">
+            <div class="card-body">
+              <h4 class="card-title mb-3 mt-3">Product Detail</h4>
+              <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                  <tbody>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Parent Code</th>
+                      <td colspan="5">{{prod.parent_code}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Child Code</th>
+                      <td colspan="5">{{prod.child_code}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Location</th>
+                      <td colspan="5">{{prod.location}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Stock</th>
+                      <td colspan="5">{{prod.stock}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Kpo</th>
+                      <td colspan="5">{{prod.kpo}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Category</th>
+                      <td colspan="5">{{ prod.tag.name }}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">QR Code</th>
+                      {% if prod.qrcode_image %}
+                      <td colspan="5">
+                        <img
+                          src="{{prod.qrcode_image.url}}"
+                          width="100"
+                          alt=""
+                        />
+                      </td>
+                      {% endif %}
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Barcode</th>
+                      {% if prod.barcode_image %}
+                      <td colspan="5">
+                        <img
+                          src="{{prod.barcode_image.url}}"
+                          width="100"
+                          alt=""
+                        />
+                      </td>
+                      {% endif %}
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Pairing Set</th>
+                      <td colspan="5">
+                        {% for pairing_set in prod.pairing_set.all %}
+                        <span class="badge badge-dark"
+                          >{{ pairing_set.pair_value }}</span
+                        >
+                        {% endfor %}
+                      </td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Weight</th>
+                      <td colspan="5">{{prod.weight}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Unit</th>
+                      <td colspan="5">{{ prod.unit }}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Base</th>
+                      <td colspan="5">{{prod.base}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Increment</th>
+                      <td colspan="5">{{prod.increment}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Thai Baht</th>
+                      <td colspan="5">{{prices.thai_baht}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">USD Dollar</th>
+                      <td colspan="5">{{prices.usd_rate}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Euro Rate</th>
+                      <td colspan="5">{{prices.euro_rate}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Note 1</th>
+                      <td colspan="5">{{prod.note_1}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Note 2</th>
+                      <td colspan="5">{{prod.note_2}}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Product Description</th>
+                      <td colspan="5">{{ prod.description }}</td>
+                    </tr>
+                    <tr>
+                      <th class="text-nowrap" scope="row">Images</th>
+                      {% if prod.images %}
+                      <td colspan="5">
+                        {% for imgs in prod.images.all %}
+                        <img src="{{imgs.image.url}}" width="100" alt="" />
+                        {% endfor %}
+                      </td>
+                      {% endif %}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Row -->
+    </div>
+
+    <!-- footer aside -->
+    {% include "includes/footer_aside.html" %}
+    <!-- /footer aside -->
+  </div>
+  <!-- End Page wrapper  -->
+</div>
+<!-- End Wrapper -->
+
+<div class="chat-windows"></div>
+
+{% include "includes/footer.html" %} {% include "includes/messages.html" %}

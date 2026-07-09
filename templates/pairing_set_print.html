@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pairing Sets - Print View</title>
+    <style>
+        @media print {
+            body { margin: 0; }
+            .no-print { display: none !important; }
+            .page-break { page-break-after: always; }
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            color: #333;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 15px;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            color: #2c3e50;
+        }
+        
+        .header .subtitle {
+            margin: 5px 0 0 0;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .summary {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 25px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .summary h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }
+        
+        .table-container {
+            margin-top: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px 8px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .print-info {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+        
+        .print-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        
+        .print-button:hover {
+            background-color: #0056b3;
+        }
+        
+        .actions {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        @media screen {
+            .actions {
+                position: sticky;
+                top: 0;
+                background: white;
+                z-index: 100;
+                padding: 10px 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="actions no-print">
+        <button class="print-button" onclick="window.print()">🖨️ Print</button>
+        <button class="print-button" onclick="window.close()" style="background-color: #6c757d;">❌ Close</button>
+    </div>
+
+    <div class="header">
+        <h1>Pairing Sets Report</h1>
+        <p class="subtitle">Complete list of all pairing set values</p>
+    </div>
+
+    <div class="summary">
+        <h3>Summary</h3>
+        <p><strong>Total Pairing Sets:</strong> {{ total_count }}</p>
+        <p><strong>Generated on:</strong> {% now "F d, Y - g:i A" %}</p>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 10%;">ID</th>
+                    <th style="width: 90%;">Pair Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pairing_set in pairing_sets %}
+                <tr>
+                    <td>{{ pairing_set.id }}</td>
+                    <td>{{ pairing_set.pair_value }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="2" style="text-align: center; color: #666; font-style: italic;">
+                        No pairing sets found.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="print-info">
+        <p>This report was generated on {% now "F d, Y" %} at {% now "g:i A" %}</p>
+        <p>Karen Project - Pairing Set Management System</p>
+    </div>
+
+    <script>
+        // Auto-focus for better print experience
+        window.addEventListener('load', function() {
+            // Optional: Auto-print when page loads (uncomment if desired)
+            // setTimeout(() => window.print(), 500);
+        });
+        
+        // Handle keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'p') {
+                e.preventDefault();
+                window.print();
+            }
+            if (e.key === 'Escape') {
+                window.close();
+            }
+        });
+    </script>
+</body>
+</html>

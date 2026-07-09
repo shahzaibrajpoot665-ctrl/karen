@@ -1,0 +1,436 @@
+{% load static %}
+{% include "includes/head.html" %}
+
+<div id="main-wrapper">
+    <!-- Topbar header -->
+    <header class="topbar">
+        {% include "includes/navbar.html" %}
+    </header>
+    <!-- End Topbar header -->
+
+    {% include "includes/aside.html" %}
+    <!-- End Left Sidebar -->
+
+    <!-- Page wrapper -->
+    <div class="page-wrapper">
+        <!-- Container fluid -->
+        <div class="container-fluid">
+            <!-- Start Page Content -->
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <h4 class="card-title">Pairing Set Management</h4>
+                            <hr>
+
+                            <!-- Add Pairing Set Form -->
+                            <div class="card border-0 shadow-sm">
+                                <div class="card-body p-4">
+                                    <div class="d-flex align-items-center mb-3">
+                                        <div class="bg-primary rounded-circle p-2 mx-3" style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
+                                            <i class="fas fa-file-excel text-white"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="mb-0 text-primary">Upload Excel File</h5>
+                                            <small class="text-muted">Add multiple pairing sets at once</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <form action="{% url 'pairing_set' %}" method="POST" enctype="multipart/form-data">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="method_type" value="create">
+                                        
+                                        <div class="upload-area border-2 border-dashed border-primary rounded p-4 text-center position-relative" 
+                                             style="background: linear-gradient(135deg, #f8f9ff 0%, #e8f2ff 100%); transition: all 0.3s ease;"
+                                             onmouseover="this.style.borderColor='#0d6efd'; this.style.backgroundColor='#e3f2fd';"
+                                             onmouseout="this.style.borderColor='#0d6efd'; this.style.backgroundColor='';">
+                                            
+                                            <div class="upload-icon mb-3">
+                                                <i class="fas fa-cloud-upload-alt text-primary" style="font-size: 3rem; opacity: 0.7;"></i>
+                                            </div>
+                                            
+                                            <div class="upload-text mb-3">
+                                                <h6 class="text-primary mb-2">Drop your Excel file here or click to browse</h6>
+                                                <p class="text-muted mb-0">Supports .xlsx and .xls files</p>
+                                            </div>
+                                            
+                                            <input type="file" 
+                                                   id="excel_file" 
+                                                   name="excel_file" 
+                                                   class="form-control-file position-absolute w-100 h-100" 
+                                                   accept=".xlsx,.xls" 
+                                                   required
+                                                   style="opacity: 0; cursor: pointer; top: 0; left: 0;">
+                                            
+                                            <div class="selected-file mt-3" id="selectedFileInfo" style="display: none;">
+                                                <div class="alert alert-success mb-0 d-flex align-items-center">
+                                                    <i class="fas fa-check-circle me-2"></i>
+                                                    <span id="fileName"></span>
+                                                    <button type="button" class="btn-close ms-auto" onclick="clearFile()"></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="d-grid mt-3">
+                                            <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn" disabled>
+                                                <i class="fas fa-upload me-2"></i>
+                                                Upload Pairing Sets
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <script>
+                                document.getElementById('excel_file').addEventListener('change', function(e) {
+                                    const file = e.target.files[0];
+                                    const fileInfo = document.getElementById('selectedFileInfo');
+                                    const fileName = document.getElementById('fileName');
+                                    const uploadBtn = document.getElementById('uploadBtn');
+                                    
+                                    if (file) {
+                                        fileName.textContent = file.name;
+                                        fileInfo.style.display = 'block';
+                                        uploadBtn.disabled = false;
+                                        uploadBtn.classList.remove('btn-secondary');
+                                        uploadBtn.classList.add('btn-primary');
+                                    } else {
+                                        fileInfo.style.display = 'none';
+                                        uploadBtn.disabled = true;
+                                        uploadBtn.classList.remove('btn-primary');
+                                        uploadBtn.classList.add('btn-secondary');
+                                    }
+                                });
+                                
+                                function clearFile() {
+                                    document.getElementById('excel_file').value = '';
+                                    document.getElementById('selectedFileInfo').style.display = 'none';
+                                    const uploadBtn = document.getElementById('uploadBtn');
+                                    uploadBtn.disabled = true;
+                                    uploadBtn.classList.remove('btn-primary');
+                                    uploadBtn.classList.add('btn-secondary');
+                                }
+                            </script>
+
+                            <!-- Multiple Delete Form -->
+                            <form id="multipleDeleteForm" action="{% url 'pairing_set' %}" method="POST" style="display: none;">
+                                {% csrf_token %}
+                                <input type="hidden" name="method_type" value="delete_multiple">
+                                <div id="selectedPairsContainer"></div>
+                            </form>
+
+                            <!-- Action Buttons -->
+                            <div class="mt-4 mb-3 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <button id="selectAllBtn" class="btn btn-secondary btn-sm">Select All</button>
+                                    <button id="deselectAllBtn" class="btn btn-secondary btn-sm">Deselect All</button>
+                                    <button id="deleteSelectedBtn" class="btn btn-danger btn-sm" disabled>Delete Selected</button>
+                                    <button id="deleteAllPairsBtn" class="btn btn-danger btn-sm">Delete Table</button>
+                                    <span id="selectedCount" class="ml-2 text-muted">0 selected</span>
+                                </div>
+                                <div>
+                                    <!-- Export Button -->
+                                    <form action="{% url 'pairing_set' %}" method="POST" style="display: inline-block;">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="method_type" value="export">
+                                        <button type="submit" class="btn btn-success btn-sm">
+                                            <i class="fas fa-file-excel"></i> Export to Excel
+                                        </button>
+                                    </form>
+                                    
+                                    <!-- Print Button -->
+                                    <button onclick="openPrintView()" class="btn btn-info btn-sm ml-2">
+                                        <i class="fas fa-print"></i> Print
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Pairing Set Table -->
+                            <div class="table-responsive mt-4">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>
+                                                <input type="checkbox" id="selectAllCheckbox">
+                                            </th>
+                                            <th>Pair Value</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-gray-600 fw-semibold" id="client-card">
+														 
+                                    </tbody>
+                                </table>
+                                <ul class="pagination pagination-outline mt-2 mb-5 d-flex justify-content-end" id="pagination">
+                                </ul>
+                            </div>
+
+                            <!-- Single Delete Modal -->
+                            <div class="modal fade" id="delete_product" tabindex="-1" style="display: none;" role="dialog" aria-labelledby="prdoductdeleteCenterTitle" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered" role="document">
+                                  <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2 class="text-center text-dark">
+                                          Pair Value
+                                        </h2>
+                                      </div>
+                                    <div class="modal-body">
+                                      <h4 class="text-center text-dark">
+                                        Are you sure you want to delete it!
+                                      </h4>
+                                    </div>
+                                    <div class="modal-footer d-flex justify-content-center">
+                                      <button type="button" class="btn btn-dark text-white waves-effect mx-2" data-dismiss="modal">
+                                        No
+                                      </button>
+                                      <form action="" method="post">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="product_id" value="" id="id_for_delete_c">
+                                        <input type="hidden" name="method_type" value="delete">
+                                        <button type="submit" class="btn btn-primary waves-effect waves-light mx-2">Yes</button>
+                                      </form>
+                                    </div>
+                                  </div>
+                                </div>
+                            </div>
+
+                            <!-- Multiple Delete Confirmation Modal -->
+                            <div class="modal fade" id="deleteMultipleModal" tabindex="-1" style="display: none;" role="dialog" aria-labelledby="deleteMultipleCenterTitle" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered" role="document">
+                                  <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2 class="text-center text-dark">
+                                          Delete Multiple Pairing Sets
+                                        </h2>
+                                      </div>
+                                    <div class="modal-body">
+                                      <h4 class="text-center text-dark">
+                                        Are you sure you want to delete <span id="deleteCount">0</span> selected pairing set(s)?
+                                      </h4>
+                                    </div>
+                                    <div class="modal-footer d-flex justify-content-center">
+                                      <button type="button" class="btn btn-dark text-white waves-effect mx-2" data-dismiss="modal">
+                                        No
+                                      </button>
+                                      <button type="button" id="confirmMultipleDelete" class="btn btn-danger waves-effect waves-light mx-2">Yes, Delete All</button>
+                                    </div>
+                                  </div>
+                                </div>
+                            </div>
+
+                            <!-- Delete All Confirmation Modal -->
+                            <div class="modal fade" id="deleteAllPairsModal" tabindex="-1" style="display: none;" role="dialog" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered" role="document">
+                                  <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2 class="text-center text-dark">
+                                          Pairing Set
+                                        </h2>
+                                      </div>
+                                    <div class="modal-body">
+                                      <h4 class="text-center text-dark">
+                                        Are you sure you want to delete Table!
+                                      </h4>
+                                    </div>
+                                    <div class="modal-footer d-flex justify-content-center">
+                                      <button type="button" class="btn btn-dark text-white waves-effect mx-2" data-dismiss="modal">
+                                        No
+                                      </button>
+                                      <form action="{% url 'pairing_set' %}" method="post">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="method_type" value="delete_all">
+                                        <button type="submit" class="btn btn-primary waves-effect waves-light mx-2">Yes</button>
+                                      </form>
+                                    </div>
+                                  </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- End Row -->
+        </div>
+        <!-- End Container fluid -->
+
+        <!-- Footer -->
+        {% include "includes/footer_aside.html" %}
+        <!-- End Footer -->
+    </div>
+    <!-- End Page wrapper -->
+</div>
+
+{% include "includes/footer.html" %}
+{% include "includes/messages.html" %}
+<script>
+    let selectedPairs = new Set();
+
+    function delete_product(id){
+        document.getElementById("id_for_delete_c").value = id;
+    }
+
+    function updateSelectedCount() {
+        const count = selectedPairs.size;
+        document.getElementById('selectedCount').textContent = `${count} selected`;
+        document.getElementById('deleteSelectedBtn').disabled = count === 0;
+    }
+
+    function togglePairSelection(id, checkbox) {
+        if (checkbox.checked) {
+            selectedPairs.add(id);
+        } else {
+            selectedPairs.delete(id);
+        }
+        updateSelectedCount();
+        
+        // Update select all checkbox state
+        const allCheckboxes = document.querySelectorAll('.pair-checkbox');
+        const checkedCheckboxes = document.querySelectorAll('.pair-checkbox:checked');
+        const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+        
+        if (checkedCheckboxes.length === 0) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = false;
+        } else if (checkedCheckboxes.length === allCheckboxes.length) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = true;
+        } else {
+            selectAllCheckbox.indeterminate = true;
+        }
+    }
+
+    function selectAll() {
+        const checkboxes = document.querySelectorAll('.pair-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = true;
+            selectedPairs.add(checkbox.value);
+        });
+        updateSelectedCount();
+        document.getElementById('selectAllCheckbox').checked = true;
+        document.getElementById('selectAllCheckbox').indeterminate = false;
+    }
+
+    function deselectAll() {
+        const checkboxes = document.querySelectorAll('.pair-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        selectedPairs.clear();
+        updateSelectedCount();
+        document.getElementById('selectAllCheckbox').checked = false;
+        document.getElementById('selectAllCheckbox').indeterminate = false;
+    }
+
+    function showDeleteMultipleModal() {
+        if (selectedPairs.size === 0) {
+            alert('Please select at least one pairing set to delete.');
+            return;
+        }
+        
+        document.getElementById('deleteCount').textContent = selectedPairs.size;
+        $('#deleteMultipleModal').modal('show');
+    }
+
+    function confirmMultipleDelete() {
+        // Clear existing hidden inputs
+        const container = document.getElementById('selectedPairsContainer');
+        container.innerHTML = '';
+        
+        // Add hidden inputs for selected pairs
+        selectedPairs.forEach(id => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'selected_pairs';
+            input.value = id;
+            container.appendChild(input);
+        });
+        
+        // Submit the form
+        document.getElementById('multipleDeleteForm').submit();
+    }
+
+    function showclients(client_data) {
+        $('#client-card').empty();
+        selectedPairs.clear(); // Clear selection when refreshing data
+        updateSelectedCount();
+        
+        if (client_data.length > 0) {
+            client_data.forEach(prod => {                
+                $('#client-card').append(
+                    `
+                    <tr id="client-row-${prod.id}">
+                        <td>
+                            <input type="checkbox" class="pair-checkbox" value="${prod.id}" onchange="togglePairSelection('${prod.id}', this)">
+                        </td>
+                        <td>${prod.name}</td>            
+                        <td> 
+                            <div class="d-flex">
+                                <button data-toggle="modal" data-target="#delete_product" onclick="delete_product('${prod.id}')" class="btn btn-danger btn-sm"><i class="ti-trash" aria-hidden="true"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                    `
+                );
+            });
+        } else {
+            $('#client-card').empty();
+            $('#client-card').append(
+                `
+                <tr>
+                    <td colspan="3" class="text-center text-muted">
+                        No data found.
+                    </td>
+                </tr>
+                `
+            );
+        }
+        
+        // Reset select all checkbox
+        document.getElementById('selectAllCheckbox').checked = false;
+        document.getElementById('selectAllCheckbox').indeterminate = false;
+    }
+
+    async function getData() {
+        let urlS = new URL(window.location.href);
+        let idParam = urlS.searchParams.get("id");
+        const queryParams = getFormattedQueryParams();
+        const url = `/pairing_set_api?id=${idParam}&${queryParams.replace('?','')}`;
+        
+        const response = await $.getJSON(url);
+        showclients(response.results);
+        if (response.results.length > 0) {
+            setPagination(response.pagination, getData);
+        }
+    }
+
+    // Event listeners
+    document.getElementById('selectAllBtn').addEventListener('click', selectAll);
+    document.getElementById('deselectAllBtn').addEventListener('click', deselectAll);
+    document.getElementById('deleteSelectedBtn').addEventListener('click', showDeleteMultipleModal);
+    document.getElementById('confirmMultipleDelete').addEventListener('click', confirmMultipleDelete);
+    document.getElementById('deleteAllPairsBtn').addEventListener('click', function() {
+        $('#deleteAllPairsModal').modal('show');
+    });
+    
+    // Select all checkbox handler
+    document.getElementById('selectAllCheckbox').addEventListener('change', function() {
+        if (this.checked) {
+            selectAll();
+        } else {
+            deselectAll();
+        }
+    });
+
+    // Print function
+    function openPrintView() {
+        const printWindow = window.open('{% url "pairing_set_print" %}', '_blank', 'width=800,height=600');
+        if (printWindow) {
+            printWindow.focus();
+        } else {
+            alert('Please allow popups for this website to use the print feature.');
+        }
+    }
+
+    getData();
+</script>

@@ -1,0 +1,947 @@
+{% load static %} {% include "includes/head.html" %}
+
+{% csrf_token %}
+<!-- Preloader - style you can find in spinners.css -->
+<div class="preloader">
+  <div class="lds-ripple">
+    <div class="lds-pos"></div>
+    <div class="lds-pos"></div>
+  </div>
+</div>
+<!-- Main wrapper - style you can find in pages.scss -->
+<div
+  id="main-wrapper"
+  data-theme="light"
+  data-layout="vertical"
+  data-navbarbg="skin6"
+  data-sidebartype="full"
+  data-sidebar-position="absolute"
+  data-header-position="absolute"
+  data-boxed-layout="full"
+>
+  <header class="topbar">{% include "includes/navbar.html" %}</header> {% include "includes/aside.html" %}
+  <div class="page-wrapper">
+    <div class="page-breadcrumb">
+      <div class="row">
+        <div class="col-5 align-self-center">
+          <h4 class="page-title">Image Management</h4>
+          <div class="d-flex align-items-center">
+            <nav aria-label="breadcrumb">
+              <ol class="breadcrumb">
+                <li class="breadcrumb-item">
+                  <a href="{% url 'form' %}">Dashboard</a>
+                </li>
+                <li class="breadcrumb-item active" aria-current="page">
+                  Image Management
+                </li>
+              </ol>
+            </nav>
+          </div>
+        </div>
+        <div class="col-7 align-self-center">
+          <div class="d-flex no-block justify-content-end align-items-center">
+            <button class="btn btn-warning" onclick="showUnlinkedImages()">
+              Show Unlinked Images
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="container-fluid">
+      <!-- Search and Filter Section -->
+      <div class="row">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label>Search Images:</label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="image-search"
+                      placeholder="Search by image name..."
+                    />
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="form-group">
+                    <label>Filter:</label>
+                    <select class="form-control" id="image-filter">
+                      <option value="all">All Images</option>
+                      <option value="linked">Linked Images</option>
+                      <option value="unlinked">Unlinked Images</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Image Gallery Section -->
+      <div class="row">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header">
+              <h4 class="card-title">Image Gallery</h4>
+              <div class="card-actions d-flex align-items-center">
+                <span id="image-count" class="badge badge-info"
+                  >Loading...</span
+                >
+              </div>
+            </div>
+            
+            <!-- Action Buttons (matching Pairing Set style) -->
+            <div class="card-body pt-2 pb-0">
+              <div class="mb-3">
+                <button id="selectAllImagesBtn" class="btn btn-secondary btn-sm">Select All</button>
+                <button id="deselectAllImagesBtn" class="btn btn-secondary btn-sm">Deselect All</button>
+                <button id="deleteSelectedImagesBtn" class="btn btn-danger btn-sm" disabled>Delete Selected</button>
+                <button id="deleteAllImagesBtn" class="btn btn-danger btn-sm">Delete Table</button>
+                <span id="selectedImagesCount" class="ml-2 text-muted">0 selected</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="image-gallery" class="row">
+                <!-- Images will be loaded here -->
+              </div>
+
+              <!-- Pagination -->
+              <div class="row mt-4">
+                <div class="col-12">
+                  <nav aria-label="Image pagination">
+                    <ul
+                      class="pagination justify-content-center"
+                      id="image-pagination"
+                    >
+                      <!-- Pagination will be loaded here -->
+                    </ul>
+                  </nav>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Linking Modal -->
+  <div class="modal fade" id="linkImageModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Link Image to Products</h5>
+          <button type="button" class="close" data-dismiss="modal">
+            <span>&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-md-4">
+              <img
+                id="modal-image"
+                src=""
+                class="img-fluid"
+                alt="Selected Image"
+              />
+              <h6 id="modal-image-name" class="mt-2"></h6>
+            </div>
+            <div class="col-md-8">
+              <div class="form-group">
+                <label>Search Products:</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="product-search"
+                  placeholder="Search by parent code or child code..."
+                />
+              </div>
+
+              <div class="form-group">
+                <label>Available Products:</label>
+                <div
+                  id="product-list"
+                  class="border p-3"
+                  style="max-height: 300px; overflow-y: auto"
+                >
+                  <!-- Products will be loaded here -->
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Currently Linked Products:</label>
+                <div
+                  id="linked-products"
+                  class="border p-3"
+                  style="max-height: 150px; overflow-y: auto"
+                >
+                  <!-- Linked products will be shown here -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">
+            Close
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            onclick="saveImageLinks()"
+          >
+            Save Links
+          </button>
+          <button type="button" class="btn btn-danger" onclick="deleteImage()">
+            Delete Image
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Detail Modal -->
+  <div class="modal fade" id="imageDetailModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Image Details</h5>
+          <button type="button" class="close" data-dismiss="modal">
+            <span>&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-md-6">
+              <img id="detail-image" src="" class="img-fluid" alt="Image">
+            </div>
+            <div class="col-md-6">
+              <h6>Alt Text:</h6>
+              <p id="detail-alt-text"></p>
+              <h6>Linked Products:</h6>
+              <ul id="detail-linked-products" class="list-group">
+                <!-- Linked products will be shown here -->
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Link Product Modal -->
+  <div class="modal fade" id="linkProductModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Link Products to Image</h5>
+          <button type="button" class="close" data-dismiss="modal">
+            <span>&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Search Products:</label>
+            <input type="text" class="form-control" id="product-search" placeholder="Search products...">
+          </div>
+          <div class="row">
+            <div class="col-md-8">
+              <h6>Available Products:</h6>
+              <div id="product-options" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px;">
+                <!-- Product options will be loaded here -->
+              </div>
+            </div>
+            <div class="col-md-4">
+              <h6>Selected Products:</h6>
+              <div id="selected-products-list" style="max-height: 300px; overflow-y: auto;">
+                <!-- Selected products will be shown here -->
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" onclick="saveProductLinks()">
+            Save Links
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auto Link Results Modal -->
+  <div class="modal fade" id="autoLinkResultsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Auto Link Results</h5>
+          <button type="button" class="close" data-dismiss="modal">
+            <span>&times;</span>
+          </button>
+        </div>
+        <div class="modal-body" id="auto-link-results">
+          <!-- Results will be shown here -->
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" data-dismiss="modal">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="deleteAllImagesModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Delete All Images</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex align-items-start">
+            <div class="mr-3">
+              <span class="btn btn-danger btn-circle btn-lg"><i class="mdi mdi-alert"></i></span>
+            </div>
+            <div class="flex-grow-1">
+              <div class="font-weight-bold">This will permanently delete all images.</div>
+              <div class="text-muted">This cannot be undone.</div>
+              <div id="deleteAllImagesModalStatus" class="mt-3 text-muted"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal" id="deleteAllImagesCancelBtn">Cancel</button>
+          <button type="button" class="btn btn-danger" id="deleteAllImagesConfirmBtn">Delete All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End Wrapper -->
+
+<div class="chat-windows"></div>
+{% include "includes/footer.html" %} {% include "includes/messages.html" %}
+
+<script>
+  let currentPage = 1;
+  let currentImageId = null;
+  let selectedProducts = [];
+  let allImages = [];
+
+  // Load images on page load
+  $(document).ready(function () {
+    loadImages();
+
+    // Search functionality
+    $("#image-search").on(
+      "input",
+      debounce(function () {
+        currentPage = 1;
+        loadImages();
+      }, 500)
+    );
+
+    // Filter functionality
+    $("#image-filter").on("change", function () {
+      currentPage = 1;
+      loadImages();
+    });
+
+    $(document).on(
+      "input",
+      "#linkProductModal #product-search",
+      debounce(function (event) {
+        const searchValue = $(event.target).val();
+        searchProducts(searchValue);
+      }, 300)
+    );
+  });
+
+  function loadImages(page = 1) {
+    const search = $("#image-search").val();
+    const filter = $("#image-filter").val();
+
+    $.ajax({
+      url: '{% url "image_api" %}',
+      method: "GET",
+      data: {
+        page: page,
+        search: search,
+        filter: filter,
+        page_size: 20,
+      },
+      success: function (response) {
+        displayImages(response.results);
+        updatePagination(response);
+        $("#image-count").text(`${response.pagination.count} images`);
+        allImages = response.results;
+      },
+      error: function () {
+        alert("Error loading images");
+      },
+    });
+  }
+
+  function displayImages(images) {
+    const container = $("#image-gallery");
+    container.empty();
+
+    if (!images || images.length === 0) {
+      container.html(
+        '<div class="col-12 text-center"><p>No images found</p></div>'
+      );
+      return;
+    }
+
+    images.forEach(function (image) {
+      const linkedProducts = image.linked_products || [];
+      const productNames = linkedProducts.map((p) => p.name).join(", ");
+      const productCount = linkedProducts.length;
+
+      const imageCard = `
+            <div class="col-md-3 col-sm-6 mb-4">
+                <div class="card image-card" data-image-id="${image.id}">
+                    <div class="image-container" style="height: 200px; overflow: hidden; position: relative;">
+                        <div class="form-check position-absolute" style="top: 10px; left: 10px; z-index: 10;">
+                            <input class="form-check-input image-checkbox" type="checkbox" value="${image.id}" 
+                                   id="checkbox-${image.id}" onchange="toggleImageSelection('${image.id}', this)">
+                        </div>
+                        <img src="${
+                          image.image_url
+                        }" class="card-img-top" alt="${image.alt_text}" 
+                             style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;"
+                             onclick="viewImageDetails(${image.id})">
+                    </div>
+                    <div class="card-body p-2">
+                        <h6 class="card-title mb-1" style="font-size: 0.9rem;">${
+                          image.alt_text || "Untitled"
+                        }</h6>
+                        <small class="text-muted d-block mb-2">
+                            ${
+                              productCount > 0
+                                ? `Linked to ${productCount} product(s)`
+                                : "Not linked"
+                            }
+                        </small>
+                        ${
+                          productCount > 0
+                            ? `<small class="text-info d-block" style="font-size: 0.8rem;">${productNames}</small>`
+                            : ""
+                        }
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-primary" onclick="linkProducts(${
+                              image.id
+                            })">
+                                <i class="fas fa-link"></i> Link
+                            </button>
+                            <button class="btn btn-sm btn-info" onclick="viewImageDetails(${
+                              image.id
+                            })">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="copyImageUrl('${image.image_url}', this)">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteImage(${
+                              image.id
+                            })">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+      container.append(imageCard);
+    });
+  }
+
+  function updatePagination(response) {
+    const pagination = $("#image-pagination");
+    pagination.empty();
+
+    if (response.pagination.total_pages <= 1) return;
+
+    // Previous button
+    if (response.pagination.current_page > 1) {
+      pagination.append(`
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="loadImages(${
+                  response.pagination.current_page - 1
+                })">
+                    <i class="fas fa-chevron-left"></i>
+                </a>
+            </li>
+        `);
+    }
+
+    // Page numbers
+    const startPage = Math.max(1, response.pagination.current_page - 2);
+    const endPage = Math.min(response.pagination.total_pages, response.pagination.current_page + 2);
+
+    for (let i = startPage; i <= endPage; i++) {
+      const activeClass = i === response.pagination.current_page ? "active" : "";
+      pagination.append(`
+            <li class="page-item ${activeClass}">
+                <a class="page-link" href="#" onclick="loadImages(${i})">${i}</a>
+            </li>
+        `);
+    }
+
+    // Next button
+    if (response.pagination.current_page < response.pagination.total_pages) {
+      pagination.append(`
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="loadImages(${
+                  response.pagination.current_page + 1
+                })">
+                    <i class="fas fa-chevron-right"></i>
+                </a>
+            </li>
+        `);
+    }
+
+    currentPage = response.pagination.current_page;
+  }
+
+  function viewImageDetails(imageId) {
+    const image = allImages.find((img) => img.id === imageId);
+    if (!image) return;
+
+    $("#detail-image").attr("src", image.image_url).attr("alt", image.alt_text);
+    $("#detail-alt-text").text(image.alt_text || "No alt text");
+    
+
+    const linkedProducts = image.linked_products || [];
+    const productsList = $("#detail-linked-products");
+    productsList.empty();
+
+    if (linkedProducts.length === 0) {
+      productsList.html('<li class="list-group-item">No linked products</li>');
+    } else {
+      linkedProducts.forEach(function (product) {
+        productsList.append(`<li class="list-group-item">${product.name}</li>`);
+      });
+    }
+
+    $("#imageDetailModal").modal("show");
+  }
+
+  function linkProducts(imageId) {
+    currentImageId = imageId;
+    selectedProducts = [];
+    $("#selected-products-list").empty();
+    $("#linkProductModal #product-search").val("");
+    
+    // Load existing linked products for this image
+    const image = allImages.find(img => img.id === imageId);
+    if (image && image.linked_products) {
+      image.linked_products.forEach(function(product) {
+        selectedProducts.push(product.id);
+        addSelectedProduct(product.id, `${product.parent_code} - ${product.child_code}`);
+      });
+    }
+
+    displayProductOptions([]);
+    $("#linkProductModal").modal("show");
+  }
+
+  function searchProducts(searchTerm) {
+    const raw = (searchTerm !== undefined ? searchTerm : $("#linkProductModal #product-search").val());
+    const search = (raw || "").trim();
+    if (!search) {
+      displayProductOptions([]);
+      return;
+    }
+
+    $.ajax({
+      url: '{% url "search_products_for_linking" %}',
+      method: "GET",
+      data: {
+        q: search,
+      },
+      success: function (response) {
+        const products = response && response.success ? (response.products || []) : [];
+        displayProductOptions(products, search);
+      },
+      error: function (xhr, status, error) {
+        displayProductOptions([], search);
+      },
+    });
+  }
+
+  function displayProductOptions(products, searchTerm) {
+    const container = $("#product-options");
+    container.empty();
+
+    if (!products || products.length === 0) {
+      if (!searchTerm) {
+        container.html('<div class="text-muted" style="padding: 10px;">Search to find products</div>');
+      } else {
+        container.html('<div class="text-muted" style="padding: 10px;">No matching products found</div>');
+      }
+      return;
+    }
+
+    products.forEach(function (product) {
+      const isSelected = selectedProducts.includes(product.id);
+      const productName = product.display_name || `${product.parent_code} - ${product.child_code}`;
+      const productOption = `
+            <div class="product-option ${isSelected ? "selected" : ""}" 
+                 data-product-id="${product.id}" 
+                 onclick="toggleProductSelection(${
+                   product.id
+                 }, '${productName.replace(/'/g, "\\'")}')" 
+                 style="padding: 10px; border: 1px solid #ddd; margin: 5px; cursor: pointer; border-radius: 5px;">
+                <strong>${productName}</strong><br>
+                <small class="text-muted">Location: ${product.location || 'N/A'}</small>
+            </div>
+        `;
+      container.append(productOption);
+    });
+  }
+
+  function toggleProductSelection(productId, productName) {
+    const index = selectedProducts.indexOf(productId);
+    const productOption = $(`.product-option[data-product-id="${productId}"]`);
+
+    if (index === -1) {
+      selectedProducts.push(productId);
+      productOption.addClass("selected");
+      addSelectedProduct(productId, productName);
+    } else {
+      selectedProducts.splice(index, 1);
+      productOption.removeClass("selected");
+      removeSelectedProduct(productId);
+    }
+  }
+
+  function addSelectedProduct(productId, productName) {
+    const selectedList = $("#selected-products-list");
+    const productItem = `
+        <div class="selected-product" data-product-id="${productId}" 
+             style="padding: 5px; background: #e9ecef; margin: 2px; border-radius: 3px; display: flex; justify-content: space-between; align-items: center;">
+            <span>${productName}</span>
+            <button type="button" class="btn btn-sm btn-danger" onclick="removeSelectedProduct(${productId})">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `;
+    selectedList.append(productItem);
+  }
+
+  function removeSelectedProduct(productId) {
+    $(`.selected-product[data-product-id="${productId}"]`).remove();
+    const index = selectedProducts.indexOf(productId);
+    if (index > -1) {
+      selectedProducts.splice(index, 1);
+    }
+    $(`.product-option[data-product-id="${productId}"]`).removeClass(
+      "selected"
+    );
+  }
+
+  function saveProductLinks() {
+    if (!currentImageId || selectedProducts.length === 0) {
+      alert("Please select at least one product");
+      return;
+    }
+
+    $.ajax({
+      url: '{% url "image_api" %}',
+      method: "POST",
+      data: {
+        csrfmiddlewaretoken: $("[name=csrfmiddlewaretoken]").val(),
+        action: "link_products",
+        image_id: currentImageId,
+        product_ids: selectedProducts.join(","),
+      },
+      success: function (response) {
+        if (response.success) {
+          alert("Products linked successfully!");
+          $("#linkProductModal").modal("hide");
+          loadImages(currentPage);
+        } else {
+          alert("Error: " + response.message);
+        }
+      },
+      error: function () {
+        alert("Error linking products");
+      },
+    });
+  }
+
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+
+  function showUnlinkedImages() {
+    $("#image-filter").val("unlinked");
+    loadImages(1);
+  }
+
+  function autoLinkImages() {
+    if (
+      !confirm(
+        "This will automatically link images to products based on filename matching. Continue?"
+      )
+    ) {
+      return;
+    }
+
+    $.ajax({
+      url: '{% url "image_api" %}',
+      method: "POST",
+      data: {
+        csrfmiddlewaretoken: $("[name=csrfmiddlewaretoken]").val(),
+        action: "auto_link",
+      },
+      success: function (response) {
+        if (response.success) {
+          alert(
+            `Auto-linking completed! ${response.linked_count} images were linked.`
+          );
+          loadImages(currentPage);
+        } else {
+          alert("Error: " + response.message);
+        }
+      },
+      error: function () {
+        alert("Error during auto-linking process");
+      },
+    });
+  }
+
+  function deleteImage(imageId) {
+    if (!confirm("Are you sure you want to delete this image? This action cannot be undone.")) {
+      return;
+    }
+
+    $.ajax({
+      url: '{% url "image_api" %}',
+      method: "POST",
+      data: {
+        csrfmiddlewaretoken: $("[name=csrfmiddlewaretoken]").val(),
+        action: "delete_image",
+        image_id: imageId,
+      },
+      success: function (response) {
+        if (response.success) {
+          alert("Image deleted successfully!");
+          loadImages(currentPage);
+        } else {
+          alert("Error: " + response.message);
+        }
+      },
+      error: function () {
+        alert("Error occurred while deleting the image.");
+      },
+    });
+  }
+
+  function copyImageUrl(url, btn) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function() {
+        var original = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        setTimeout(function() { btn.innerHTML = original; }, 1500);
+      }).catch(function() {
+        fallbackCopy(url, btn);
+      });
+    } else {
+      fallbackCopy(url, btn);
+    }
+  }
+
+  function fallbackCopy(url, btn) {
+    var textarea = document.createElement('textarea');
+    textarea.value = url;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      var original = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+      setTimeout(function() { btn.innerHTML = original; }, 1500);
+    } catch (e) {
+      alert('Failed to copy URL. Please copy it manually: ' + url);
+    }
+    document.body.removeChild(textarea);
+  }
+
+  function updateBulkDeleteButton() {
+    const checkboxes = document.querySelectorAll('.image-checkbox');
+    const checkedBoxes = document.querySelectorAll('.image-checkbox:checked');
+    const deleteSelectedBtn = document.getElementById('deleteSelectedImagesBtn');
+    const selectedCount = document.getElementById('selectedImagesCount');
+    const selectAllCheckbox = document.getElementById('selectAllImagesCheckbox');
+
+    // Update count and button state
+    const count = checkedBoxes.length;
+    selectedCount.textContent = `${count} selected`;
+    deleteSelectedBtn.disabled = count === 0;
+
+    // Update select all checkbox state if it exists
+    if (selectAllCheckbox) {
+      if (checkedBoxes.length === checkboxes.length && checkboxes.length > 0) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+      } else if (checkedBoxes.length > 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true;
+      } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+      }
+    }
+  }
+
+  // New functions matching Pairing Set pattern
+  let selectedImages = new Set();
+
+  function updateSelectedImagesCount() {
+    const count = selectedImages.size;
+    document.getElementById('selectedImagesCount').textContent = `${count} selected`;
+    document.getElementById('deleteSelectedImagesBtn').disabled = count === 0;
+  }
+
+  function toggleImageSelection(id, checkbox) {
+    if (checkbox.checked) {
+      selectedImages.add(id);
+    } else {
+      selectedImages.delete(id);
+    }
+    updateSelectedImagesCount();
+  }
+
+  function selectAllImages() {
+    const checkboxes = document.querySelectorAll('.image-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = true;
+      selectedImages.add(checkbox.value);
+    });
+    updateSelectedImagesCount();
+  }
+
+  function deselectAllImages() {
+    const checkboxes = document.querySelectorAll('.image-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    selectedImages.clear();
+    updateSelectedImagesCount();
+  }
+
+  function showDeleteMultipleImagesModal() {
+    if (selectedImages.size === 0) {
+      alert('Please select at least one image to delete.');
+      return;
+    }
+    
+    const confirmMessage = `Are you sure you want to delete ${selectedImages.size} selected image(s)? This action cannot be undone.`;
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    // Convert Set to Array for the AJAX call
+    const imageIds = Array.from(selectedImages);
+    
+    $.ajax({
+      url: '{% url "image_api" %}',
+      method: "POST",
+      data: {
+        csrfmiddlewaretoken: $("[name=csrfmiddlewaretoken]").val(),
+        action: "bulk_delete_images",
+        image_ids: imageIds.join(','),
+      },
+      success: function (response) {
+        if (response.success) {
+          alert(`Successfully deleted ${response.deleted_count} image(s)!`);
+          loadImages(currentPage);
+          // Reset selection
+          selectedImages.clear();
+          updateSelectedImagesCount();
+        } else {
+          alert("Error: " + response.message);
+        }
+      },
+      error: function () {
+        alert("Error occurred while deleting the images.");
+      },
+    });
+  }
+
+  function deleteAllImagesTable() {
+    $("#deleteAllImagesModalStatus").text("");
+    $("#deleteAllImagesConfirmBtn").prop("disabled", false);
+    $("#deleteAllImagesCancelBtn").prop("disabled", false);
+    $("#deleteAllImagesModal").modal("show");
+  }
+
+  function runDeleteAllImages() {
+    $("#deleteAllImagesConfirmBtn").prop("disabled", true);
+    $("#deleteAllImagesCancelBtn").prop("disabled", true);
+    $("#deleteAllImagesModalStatus").html('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Deleting images…');
+
+    $.ajax({
+      url: '{% url "image_api" %}',
+      method: "POST",
+      data: {
+        csrfmiddlewaretoken: $("[name=csrfmiddlewaretoken]").val(),
+        action: "delete_all_images",
+      },
+      success: function (response) {
+        if (response.success) {
+          $("#deleteAllImagesModalStatus").text(`Successfully deleted ${response.deleted_count} image(s).`);
+          loadImages(1);
+          selectedImages.clear();
+          updateSelectedImagesCount();
+          setTimeout(function () {
+            $("#deleteAllImagesModal").modal("hide");
+          }, 700);
+        } else {
+          $("#deleteAllImagesModalStatus").text(response.message || "Delete failed");
+          $("#deleteAllImagesCancelBtn").prop("disabled", false);
+        }
+      },
+      error: function () {
+        $("#deleteAllImagesModalStatus").text("Error occurred while deleting all images.");
+        $("#deleteAllImagesCancelBtn").prop("disabled", false);
+      },
+    });
+  }
+
+  // Add event listeners for the buttons
+  document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('selectAllImagesBtn').addEventListener('click', selectAllImages);
+    document.getElementById('deselectAllImagesBtn').addEventListener('click', deselectAllImages);
+    document.getElementById('deleteSelectedImagesBtn').addEventListener('click', showDeleteMultipleImagesModal);
+    document.getElementById('deleteAllImagesBtn').addEventListener('click', deleteAllImagesTable);
+    document.getElementById('deleteAllImagesConfirmBtn').addEventListener('click', runDeleteAllImages);
+  });
+</script>
