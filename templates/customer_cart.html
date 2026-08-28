@@ -136,6 +136,12 @@
                                                         <textarea id="cartNotes" class="form-control" rows="2" placeholder="Optional notes for print/export"></textarea>
                                                     </div>
                                                 </div>
+                                                <div class="row mt-3">
+                                                    <div class="col-md-12">
+                                                        <label for="cartSpecialNotes">Special Notes</label>
+                                                        <textarea id="cartSpecialNotes" class="form-control" rows="6" placeholder="Special notes for print"></textarea>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -294,8 +300,8 @@
                             <label class="form-check-label" for="colProductCode">Product Code</label>
                         </div>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="exportCols[]" id="colName" value="name" checked>
-                            <label class="form-check-label" for="colName">Name / Description</label>
+                            <input class="form-check-input" type="checkbox" name="exportCols[]" id="colDescription" value="description" checked>
+                            <label class="form-check-label" for="colDescription">Description</label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="exportCols[]" id="colQty" value="qty" checked>
@@ -328,12 +334,12 @@
                             <label class="form-check-label" for="colPairingSet">Pairing Set</label>
                         </div>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="exportCols[]" id="colNote1" value="note1" checked>
-                            <label class="form-check-label" for="colNote1">Note 1</label>
+                            <input class="form-check-input" type="checkbox" name="exportCols[]" id="colBI" value="bi" checked>
+                            <label class="form-check-label" for="colBI">B/I</label>
                         </div>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="exportCols[]" id="colNote2" value="note2" checked>
-                            <label class="form-check-label" for="colNote2">Note 2</label>
+                            <input class="form-check-input" type="checkbox" name="exportCols[]" id="colNote" value="note" checked>
+                            <label class="form-check-label" for="colNote">Note</label>
                         </div>
                     </div>
                 </div>
@@ -519,6 +525,7 @@ $(document).ready(function() {
                 $('#cartDeposit').val(resp.cart_info.deposit_amount != null ? resp.cart_info.deposit_amount : '');
                 $('#cartGrossWeight').val(resp.cart_info.gross_weight != null ? resp.cart_info.gross_weight : '');
                 $('#cartNotes').val(resp.cart_info.notes || '');
+                $('#cartSpecialNotes').val(resp.cart_info.special_notes || '');
             }
         });
     }
@@ -535,7 +542,8 @@ $(document).ready(function() {
             shipping_amount: parseFloat($('#cartShipping').val() || '0') || 0,
             deposit_amount: parseFloat($('#cartDeposit').val() || '0') || 0,
             gross_weight: parseFloat($('#cartGrossWeight').val() || '0') || 0,
-            notes: $('#cartNotes').val()
+            notes: $('#cartNotes').val(),
+            special_notes: $('#cartSpecialNotes').val()
         };
         $.ajax({
             url: '{% url "cart_api" customer.id %}',

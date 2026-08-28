@@ -28,6 +28,9 @@ from barcode.writer import ImageWriter
 from django.conf import settings
 from django.db.models import Q
 import io
+import csv as _csv
+import urllib.request
+import urllib.error
 from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django.views.decorators.csrf import csrf_exempt
@@ -67,7 +70,7 @@ def _parse_price_to_decimal(val):
 EXPECTED_IMPORT_COLUMNS = [
     'Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set',
     'weight', 'base', 'increment', 'Category', 'Unit', 'Product Description',
-    'Note 1', 'Note 2', 'Image URL'
+    'Note', 'Image URL'
 ]
 
 def _validate_import_columns(header_values):
@@ -105,6 +108,111 @@ def _get_computed_prices(product, price_setting=None):
         'euro_rate_value': float(eur_unit),
     }
 
+def _compute_bi_value(product):
+    """B/I = (Base * 7) / (Increment * 7), 2 decimals.
+    Returns None when base/increment missing or increment is 0."""
+    return compute_bi(getattr(product, 'base', None), getattr(product, 'increment', None))
+
+
+# ---- Google Sheets integration helpers ----
+GOOGLE_SHEET_EXPORT_URL = "https://docs.google.com/spreadsheets/d/{sid}/export?format=xlsx"
+
+def _extract_spreadsheet_id(url_or_id):
+    """Accept a full URL or a bare spreadsheet ID; return the ID."""
+    s = (url_or_id or '').strip()
+    if not s:
+        return ''
+    m = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', s)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r'[a-zA-Z0-9-_]+', s):
+        return s
+    return ''
+
+def _download_google_sheet_xlsx(spreadsheet_id, timeout=60):
+    """Download a public Google Sheet as xlsx. Returns path to a temp file.
+    Raises ValueError with a clear message on any failure."""
+    url = GOOGLE_SHEET_EXPORT_URL.format(sid=spreadsheet_id)
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            content_type = resp.headers.get('Content-Type', '')
+            content = resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise ValueError('Google Sheet not found or not publicly accessible. Make sure the sheet is set to "Anyone with the link can view".')
+        raise ValueError(f'Google Sheets returned HTTP {e.code}')
+    except urllib.error.URLError as e:
+        raise ValueError(f'Could not reach Google Sheets: {e.reason}')
+    except Exception as e:
+        raise ValueError(f'Could not reach Google Sheets: {e}')
+    # Non-public sheets may return 200 with an HTML login/error page instead of xlsx
+    ct_lower = (content_type or '').lower()
+    if 'html' in ct_lower or content[:5] == b'<!DOC' or content[:5] == b'<html' or content[:1] == b'<':
+        raise ValueError('Google Sheet is not publicly accessible. Make sure the sheet is set to "Anyone with the link can view".')
+    if not content:
+        raise ValueError('The Google Sheet is empty.')
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+    tmp.write(content)
+    tmp.close()
+    return tmp.name
+
+def _fetch_google_sheet_tabs(spreadsheet_id, timeout=60):
+    """Return list of {'gid': name, 'name': name} for a public Google Sheet.
+    Uses the xlsx export endpoint and reads sheet names with openpyxl.
+    Raises ValueError with a clear message on any failure."""
+    tmp_path = _download_google_sheet_xlsx(spreadsheet_id, timeout=timeout)
+    try:
+        wb = load_workbook(tmp_path, read_only=True)
+        names = list(wb.sheetnames)
+        wb.close()
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        raise ValueError('Could not read the Google Sheet. The file may be corrupted or in an unsupported format.')
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except Exception:
+        pass
+    if not names:
+        raise ValueError('No sheets/tabs found in the Google Sheet.')
+    return [{'gid': name, 'name': name} for name in names]
+
+def _download_google_sheet_to_xlsx(spreadsheet_id, sheet_name, timeout=60):
+    """Download a Google Sheet, extract the selected tab, return path to temp xlsx.
+    Raises ValueError with a clear message on any failure."""
+    tmp_path = _download_google_sheet_xlsx(spreadsheet_id, timeout=timeout)
+    try:
+        wb = load_workbook(tmp_path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        raise ValueError('Could not read the downloaded Google Sheet.')
+    # Extract only the selected sheet so wb.active points to it
+    if sheet_name and sheet_name in wb.sheetnames:
+        for name in list(wb.sheetnames):
+            if name != sheet_name:
+                wb.remove(wb[name])
+        wb.active = 0
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except Exception:
+        pass
+    out = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+    out_path = out.name
+    out.close()
+    wb.save(out_path)
+    wb.close()
+    return out_path
+
 def _process_product_import_job(import_id, file_path, max_import_rows):
     try:
         wb = load_workbook(file_path, data_only=True)
@@ -132,15 +240,14 @@ def _process_product_import_job(import_id, file_path, max_import_rows):
         idx_weight = find_idx(['weight'])
         idx_base = find_idx(['base','thai baht','thai_baht','thb'])
         idx_increment = find_idx(['increment','inc'])
-        idx_note1 = find_idx(['note 1','note_1'])
-        idx_note2 = find_idx(['note 2','note_2'])
+        idx_note = find_idx(['note'])
         idx_category = find_idx(['category','tag'])
         idx_unit = find_idx(['unit'])
         idx_description = find_idx(['product description','description'])
         idx_images_names = find_idx(['images','image names','images names','image_names'])
         idx_image_url = find_idx(['image url','image_url'])
 
-        required_indices = [idx_parent, idx_child, idx_location, idx_stock, idx_weight, idx_base, idx_note1, idx_note2]
+        required_indices = [idx_parent, idx_child, idx_location, idx_stock, idx_weight, idx_base, idx_note]
         if any(i is None for i in required_indices):
             _update_product_import_state(import_id, status='error', message='Missing required columns in Excel header')
             return
@@ -211,8 +318,7 @@ def _process_product_import_job(import_id, file_path, max_import_rows):
                     increment_val = Decimal(str(fields[idx_increment])) if idx_increment is not None and fields[idx_increment] is not None else Decimal('0')
                 except (ValueError, TypeError):
                     increment_val = Decimal('0')
-                note_1 = fields[idx_note1]
-                note_2 = fields[idx_note2]
+                note = fields[idx_note]
                 description = fields[idx_description] if idx_description is not None else None
                 unit = fields[idx_unit] if idx_unit is not None else None
                 category_name = fields[idx_category] if idx_category is not None else None
@@ -234,8 +340,7 @@ def _process_product_import_job(import_id, file_path, max_import_rows):
                     product.weight = weight
                     product.base = base_val
                     product.increment = increment_val
-                    product.note_1 = note_1
-                    product.note_2 = note_2
+                    product.note = note
                     if description is not None:
                         product.description = description
                     if unit is not None:
@@ -254,8 +359,7 @@ def _process_product_import_job(import_id, file_path, max_import_rows):
                         weight=weight,
                         base=base_val,
                         increment=increment_val,
-                        note_1=note_1,
-                        note_2=note_2,
+                        note=note,
                         description=description or None,
                         unit=unit or None
                     )
@@ -476,6 +580,177 @@ def product_import_status(request):
         return JsonResponse({'success': False, 'message': 'Import not found'}, status=404)
 
     return JsonResponse({'success': True, **state})
+
+
+# ---- Google Sheets import views ----
+
+@login_required
+def google_sheet_status(request):
+    """Return the currently connected Google Sheet config + live tab list."""
+    cfg = GoogleSheetConfig.get_singleton()
+    sid = cfg.spreadsheet_id
+    base = {
+        'success': True,
+        'configured': bool(sid),
+        'spreadsheet_id': sid,
+        'spreadsheet_url': cfg.spreadsheet_url,
+        'sheet_gid': cfg.sheet_gid,
+        'sheet_name': cfg.sheet_name,
+    }
+    if not sid:
+        base['connection_status'] = 'not_configured'
+        base['tabs'] = []
+        return JsonResponse(base)
+    try:
+        tabs = _fetch_google_sheet_tabs(sid)
+        base['tabs'] = tabs
+        base['connection_status'] = 'connected'
+        return JsonResponse(base)
+    except Exception as e:
+        base['tabs'] = []
+        base['connection_status'] = 'error'
+        base['error'] = str(e)
+        return JsonResponse(base)
+
+
+@login_required
+def google_sheet_connect(request):
+    """Save a Google Sheet URL/ID and validate it is reachable. Returns the tab list."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+    try:
+        data = json.loads(request.body or '{}')
+    except Exception:
+        return JsonResponse({'success': False, 'message': 'Invalid request body'}, status=400)
+    url_or_id = (data.get('spreadsheet_url') or '').strip()
+    sid = _extract_spreadsheet_id(url_or_id)
+    if not sid:
+        return JsonResponse({'success': False, 'message': 'Invalid Google Sheet URL or ID'}, status=400)
+    try:
+        tabs = _fetch_google_sheet_tabs(sid)
+    except ValueError as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'Could not connect to Google Sheet: {e}'}, status=400)
+    if not tabs:
+        return JsonResponse({'success': False, 'message': 'No sheets/tabs found in the Google Sheet'}, status=400)
+    cfg = GoogleSheetConfig.get_singleton()
+    cfg.spreadsheet_id = sid
+    cfg.spreadsheet_url = url_or_id
+    chosen_gid = str((data.get('sheet_gid') or '').strip())
+    chosen = next((t for t in tabs if str(t['gid']) == chosen_gid), tabs[0])
+    cfg.sheet_gid = str(chosen['gid'])
+    cfg.sheet_name = chosen['name']
+    cfg.save()
+    return JsonResponse({
+        'success': True,
+        'tabs': tabs,
+        'sheet_gid': cfg.sheet_gid,
+        'sheet_name': cfg.sheet_name,
+        'spreadsheet_id': sid,
+    })
+
+
+@login_required
+def google_sheet_select_tab(request):
+    """Change the selected sheet tab (gid) for the connected Google Sheet."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+    try:
+        data = json.loads(request.body or '{}')
+    except Exception:
+        return JsonResponse({'success': False, 'message': 'Invalid request body'}, status=400)
+    gid = str((data.get('sheet_gid') or '').strip())
+    cfg = GoogleSheetConfig.get_singleton()
+    if not cfg.spreadsheet_id:
+        return JsonResponse({'success': False, 'message': 'No Google Sheet connected'}, status=400)
+    try:
+        tabs = _fetch_google_sheet_tabs(cfg.spreadsheet_id)
+    except ValueError as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'Could not reach Google Sheet: {e}'}, status=400)
+    chosen = next((t for t in tabs if str(t['gid']) == gid), None)
+    if not chosen:
+        return JsonResponse({'success': False, 'message': 'Selected tab not found in the Google Sheet'}, status=400)
+    cfg.sheet_gid = gid
+    cfg.sheet_name = chosen['name']
+    cfg.save()
+    return JsonResponse({'success': True, 'sheet_gid': gid, 'sheet_name': chosen['name']})
+
+
+@login_required
+def google_sheet_import_start(request):
+    """Download the connected Google Sheet tab and run the same import job as file upload."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+    cfg = GoogleSheetConfig.get_singleton()
+    if not cfg.spreadsheet_id or not cfg.sheet_gid:
+        return JsonResponse({'success': False, 'message': 'No Google Sheet connected. Please connect a sheet first.'}, status=400)
+
+    max_import_rows = 10000
+    import_id = uuid.uuid4().hex
+
+    # Download the Google Sheet tab and convert to xlsx
+    try:
+        tmp_path = _download_google_sheet_to_xlsx(cfg.spreadsheet_id, cfg.sheet_gid)
+    except ValueError as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'Failed to download Google Sheet: {e}'}, status=400)
+
+    # Pre-validate headers (same as file import)
+    try:
+        wb = load_workbook(tmp_path, data_only=True, read_only=True)
+        sheet = wb.active
+        total_rows = max(0, (sheet.max_row or 1) - 1)
+        header_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), [])
+        header_values = [str(c).strip().lower() if c is not None else '' for c in header_row]
+        wb.close()
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return JsonResponse({'success': False, 'message': 'Error reading Google Sheet data'}, status=400)
+
+    is_valid, missing, extra, err_msg = _validate_import_columns(header_values)
+    if not is_valid:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return JsonResponse({'success': False, 'message': err_msg}, status=400)
+
+    if total_rows > max_import_rows:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return JsonResponse({'success': False, 'message': f'Import limit is {max_import_rows} rows per import. Please reduce the sheet size and try again.'}, status=400)
+
+    _set_product_import_state(import_id, {
+        'import_id': import_id,
+        'total_rows': total_rows,
+        'processed_rows': 0,
+        'success_count': 0,
+        'failed_count': 0,
+        'skipped_count': 0,
+        'failed_rows': [],
+        'failed_rows_truncated': False,
+        'failed_rows_truncated_count': 0,
+        'status': 'queued',
+        'message': ''
+    })
+
+    t = threading.Thread(target=_process_product_import_job, args=(import_id, tmp_path, max_import_rows), daemon=True)
+    t.start()
+
+    _update_product_import_state(import_id, status='running')
+    return JsonResponse({'success': True, 'import_id': import_id, 'total_rows': total_rows, 'max_rows': max_import_rows})
 
 
 @csrf_exempt
@@ -736,14 +1011,13 @@ def form_view(request):
                 idx_weight = find_idx(['weight'])
                 idx_base = find_idx(['base','thai baht','thai_baht','thb'])
                 idx_increment = find_idx(['increment','inc'])
-                idx_note1 = find_idx(['note 1','note_1'])
-                idx_note2 = find_idx(['note 2','note_2'])
+                idx_note = find_idx(['note'])
                 idx_category = find_idx(['category','tag'])
                 idx_unit = find_idx(['unit'])
                 idx_description = find_idx(['product description','description'])
                 idx_images_names = find_idx(['images','image names','images names','image_names'])
                 idx_image_url = find_idx(['image url','image_url'])
-                required_indices = [idx_parent, idx_child, idx_location, idx_stock, idx_weight, idx_base, idx_note1, idx_note2]
+                required_indices = [idx_parent, idx_child, idx_location, idx_stock, idx_weight, idx_base, idx_note]
                 if any(i is None for i in required_indices):
                     messages.error(request,'Missing required columns in Excel header')
                     return redirect("form")
@@ -772,8 +1046,7 @@ def form_view(request):
                         increment_val = Decimal(str(fields[idx_increment])) if idx_increment is not None and fields[idx_increment] is not None else Decimal('0')
                     except (ValueError, TypeError):
                         increment_val = Decimal('0')
-                    note_1 = fields[idx_note1]
-                    note_2 = fields[idx_note2]
+                    note = fields[idx_note]
                     description = fields[idx_description] if idx_description is not None else None
                     unit = fields[idx_unit] if idx_unit is not None else None
                     category_name = fields[idx_category] if idx_category is not None else None
@@ -791,8 +1064,7 @@ def form_view(request):
                         product.weight = weight
                         product.base = base_val
                         product.increment = increment_val
-                        product.note_1 = note_1
-                        product.note_2 = note_2
+                        product.note = note
                         if description is not None:
                             product.description = description
                         if unit is not None:
@@ -802,7 +1074,7 @@ def form_view(request):
                             product.tag = tag_obj
                         product.save()
                     else:      
-                        product = Product.objects.create(parent_code=parent_code, child_code=child_code, location=location, stock=stock, kpo=kpo, weight=weight, base=base_val, increment=increment_val, note_1=note_1, note_2=note_2, description=description or None, unit=unit or None)
+                        product = Product.objects.create(parent_code=parent_code, child_code=child_code, location=location, stock=stock, kpo=kpo, weight=weight, base=base_val, increment=increment_val, note=note, description=description or None, unit=unit or None)
                         if category_name:
                             try:
                                 tag_obj, _ = Tag.objects.get_or_create(name=str(category_name).strip())
@@ -884,19 +1156,18 @@ def form_view(request):
             weight = data.get('weight')
             base = data.get('base')
             increment = data.get('increment')
-            note_1 = data.get('note_1')
-            note_2 = data.get('note_2')
+            note = data.get('note')
             description = data.get('description')
             unit = data.get('unit')
             tag_id = data.get('tag_id')
-            uploaded_images = request.FILES.getlist("images") 
+            uploaded_images = request.FILES.getlist("images")
 
             product_check =  Product.objects.filter(child_code=child_code).first()
             if product_check:
                 messages.error(request, "Product with this child code already exists!")
                 return redirect('form')
 
-            product = Product.objects.create(parent_code=parent_code, child_code=child_code, location=location, stock=stock, kpo=kpo, weight=weight, base=base, increment=increment, note_1=note_1, note_2=note_2, description=description, unit=unit)
+            product = Product.objects.create(parent_code=parent_code, child_code=child_code, location=location, stock=stock, kpo=kpo, weight=weight, base=base, increment=increment, note=note, description=description, unit=unit)
             product.pairing_set.add(*pairing_set_ids)
             if tag_id:
                 try:
@@ -942,8 +1213,7 @@ def form_view(request):
             weight = data.get('weight')
             base = data.get('base')
             increment = data.get('increment')
-            note_1 = data.get('note_1')
-            note_2 = data.get('note_2')
+            note = data.get('note')
             description = data.get('description')
             unit = data.get('unit')
             tag_id = data.get('tag_id')
@@ -952,19 +1222,18 @@ def form_view(request):
             if product_check:
                 messages.error(request, "Product with this child code already exists!")
                 return redirect('form')
-            
+
             product = Product.objects.get(id=pro_id)
-            
+
             product.parent_code=parent_code
-            product.child_code=child_code 
-            product.location=location 
-            product.stock=stock 
-            product.kpo=kpo 
-            product.weight=weight 
-            product.base=base 
-            product.increment=increment 
-            product.note_1=note_1
-            product.note_2=note_2
+            product.child_code=child_code
+            product.location=location
+            product.stock=stock
+            product.kpo=kpo
+            product.weight=weight
+            product.base=base
+            product.increment=increment
+            product.note=note
             product.description=description
             product.unit=unit
             product.pairing_set.clear()
@@ -1033,8 +1302,8 @@ def form_view(request):
                 'weight':pro_obj.weight,
                 'base':str(pro_obj.base),
                 'increment':str(pro_obj.increment),
-                'note_1': pro_obj.note_1,
-                'note_2': pro_obj.note_2,
+                'bi': _compute_bi_value(pro_obj),
+                'note': pro_obj.note,
                 'description': pro_obj.description,
                 'unit': pro_obj.unit,
                 'tag_id': pro_obj.tag.id if pro_obj.tag else None,
@@ -1095,8 +1364,8 @@ def product_api(request):
         'base':str(pro_obj.base),
         'increment':str(pro_obj.increment),
         **(prices := _get_computed_prices(pro_obj, ps)),
-        'note_1': pro_obj.note_1,
-        'note_2': pro_obj.note_2,
+        'bi': _compute_bi_value(pro_obj),
+        'note': pro_obj.note,
         'description': pro_obj.description,
         'unit': pro_obj.unit,
         'tag':pro_obj.tag.name if pro_obj.tag else '',
@@ -1117,7 +1386,7 @@ def product_api(request):
 def product_detail(request, id):
     prod = Product.objects.get(id=id)
     prices = _get_computed_prices(prod)
-    return render(request, 'product_detail.html', {'prod' : prod, 'prices' : prices})
+    return render(request, 'product_detail.html', {'prod' : prod, 'prices' : prices, 'bi': _compute_bi_value(prod)})
 
 # @cache_page(60 * 60 * 24)  # Cache for one day (24 hours)
 @csrf_exempt
@@ -1195,11 +1464,12 @@ def single_product(request):
                 'thai_baht': prices['thai_baht'],
                 'usd_rate': prices['usd_rate'],
                 'euro_rate': prices['euro_rate'],
-                'note_1': prod.note_1,
-                'note_2': prod.note_2,
+                'bi': _compute_bi_value(prod),
+                'note': prod.note,
                 'description': prod.description,
                 'unit': prod.unit,
                 'tag': prod.tag.name if prod.tag else '',
+                'level': str((PriceSetting.get_singleton().silver_price or Decimal('0')) - Decimal('10')),
                 'images': [{'url': request.build_absolute_uri(image.image.url)} for image in prod.images.all()],
                 'qrcode_image': request.build_absolute_uri(prod.qrcode_image.url) if prod.qrcode_image else None,
                 'barcode_image': request.build_absolute_uri(prod.barcode_image.url) if prod.barcode_image else None,
@@ -1282,7 +1552,7 @@ def export_to_excel(request):
     ws = wb.active
     ws.title = 'Karen Data'
 
-    columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'base', 'increment', 'Category', 'Unit', 'Product Description', 'Note 1', 'Note 2', 'Image URL']
+    columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'base', 'increment', 'Category', 'Unit', 'Product Description', 'B/I', 'Note', 'Image URL']
     ws.append(columns)
 
     product = Product.objects.prefetch_related('pairing_set', 'images').order_by('-id')
@@ -1292,7 +1562,7 @@ def export_to_excel(request):
         ws.append([
             prod.parent_code,
             prod.child_code,
-            prod.location,  
+            prod.location,
             prod.stock,
             prod.kpo,
             pairing_set_values,
@@ -1302,8 +1572,8 @@ def export_to_excel(request):
             (prod.tag.name if getattr(prod, 'tag', None) else ''),
             (prod.unit or ''),
             (prod.description or ''),
-            prod.note_1,
-            prod.note_2,
+            _compute_bi_value(prod),
+            prod.note,
             request.build_absolute_uri(prod.images.first().image.url) if prod.images.exists() else '',
         ])
 
@@ -1326,7 +1596,7 @@ def export_selected_to_excel(request):
         ws = wb.active
         ws.title = 'Selected Products'
 
-        columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'base', 'increment', 'Category', 'Unit', 'Product Description', 'Note 1', 'Note 2', 'Image URL']
+        columns = ['Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set', 'weight', 'base', 'increment', 'Category', 'Unit', 'Product Description', 'B/I', 'Note', 'Image URL']
         ws.append(columns)
 
         products = Product.objects.filter(id__in=selected_ids).prefetch_related('pairing_set', 'images')
@@ -1346,8 +1616,8 @@ def export_selected_to_excel(request):
                 (prod.tag.name if getattr(prod, 'tag', None) else ''),
                 (prod.unit or ''),
                 (prod.description or ''),
-                prod.note_1,
-                prod.note_2,
+                _compute_bi_value(prod),
+                prod.note,
                 request.build_absolute_uri(prod.images.first().image.url) if prod.images.exists() else '',
             ])
 
@@ -2146,7 +2416,7 @@ def export_customer_cart_excel(request, customer_id):
         # Parse selected columns from query params
         selected_cols_param = request.GET.get('cols', '')
         selected_cols = [c.strip() for c in selected_cols_param.split(',') if c.strip()] or [
-            'product_code', 'location', 'qty', 'wt_g', 'price_thb', 'amount_thb', 'usd', 'euro', 'note1', 'note2'
+            'product_code', 'location', 'qty', 'wt_g', 'price_thb', 'amount_thb', 'usd', 'euro', 'bi', 'note'
         ]
 
         def to_float(val):
@@ -2162,7 +2432,7 @@ def export_customer_cart_excel(request, customer_id):
         for c in selected_cols:
             if c == 'product_code': headers.append('Product Code')
             elif c == 'picture': headers.append('Picture')
-            elif c == 'name': headers.append('Product Name')
+            elif c == 'description': headers.append('Description')
             elif c == 'wt_g': headers.append('WT. (g)')
             elif c == 'qty': headers.append('Quantity')
             elif c == 'price_thb': headers.append(f'Unit Price ({currency})')
@@ -2170,8 +2440,8 @@ def export_customer_cart_excel(request, customer_id):
             elif c == 'location': headers.append('Location')
             elif c == 'kpo': headers.append('KPO')
             elif c == 'pairing_set': headers.append('Pairing Set')
-            elif c == 'note1': headers.append('Note 1')
-            elif c == 'note2': headers.append('Note 2')
+            elif c == 'bi': headers.append('B/I')
+            elif c == 'note': headers.append('Note')
             elif c == 'thb': headers.append('THB')
             elif c == 'usd': headers.append('USD')
             elif c == 'euro': headers.append('EURO')
@@ -2182,11 +2452,7 @@ def export_customer_cart_excel(request, customer_id):
         total_amount = 0.0
         total_quantity = 0
         total_weight = 0.0
-        earring_count = 0
-        ring_count = 0
-        bracelet_bangle_count = 0
-        necklace_count = 0
-        others_count = 0
+        categories = {}
         for ci in cart_items:
             p = ci.product
             computed = _get_computed_prices(p)
@@ -2203,22 +2469,12 @@ def export_customer_cart_excel(request, customer_id):
             total_amount += amount
             total_quantity += ci.quantity
             total_weight += to_float(p.weight or 0) * ci.quantity
-            tag_name = (p.tag.name if p.tag else '') or ''
-            t = tag_name.lower()
-            if 'earring' in t:
-                earring_count += ci.quantity
-            elif 'ring' in t:
-                ring_count += ci.quantity
-            elif 'bracelet' in t or 'bangle' in t:
-                bracelet_bangle_count += ci.quantity
-            elif 'necklace' in t:
-                necklace_count += ci.quantity
-            else:
-                others_count += ci.quantity
+            tag_name = (p.tag.name if p.tag else '') or 'Other'
+            categories[tag_name] = categories.get(tag_name, 0) + ci.quantity
             items_for_export.append({
                 'code': f"{p.child_code}",
                 'image_url': '',
-                'name': tag_name if tag_name else '-',
+                'description': p.description or '-',
                 'weight': to_float(p.weight or 0),
                 'quantity': ci.quantity,
                 'unit': unit,
@@ -2226,8 +2482,8 @@ def export_customer_cart_excel(request, customer_id):
                 'location': p.location or '-',
                 'kpo': p.kpo or '-',
                 'pairing_set': ', '.join([ps.pair_value for ps in p.pairing_set.all()]) if hasattr(p, 'pairing_set') else '-',
-                'note1': p.note_1 or '-',
-                'note2': p.note_2 or '-',
+                'bi': _compute_bi_value(p) or '-',
+                'note': p.note or '-',
                 'thb': to_float(computed['thai_baht'] or 0),
                 'usd': to_float(computed['usd_rate'] or 0),
                 'eur': to_float(computed['euro_rate'] or 0),
@@ -2238,7 +2494,7 @@ def export_customer_cart_excel(request, customer_id):
             for c in selected_cols:
                 if c == 'product_code': row.append(it['code'])
                 elif c == 'picture': row.append(it['image_url'])
-                elif c == 'name': row.append(it['name'])
+                elif c == 'description': row.append(it['description'])
                 elif c == 'wt_g': row.append(it['weight'])
                 elif c == 'qty': row.append(it['quantity'])
                 elif c == 'price_thb': row.append(it['unit'])
@@ -2246,8 +2502,8 @@ def export_customer_cart_excel(request, customer_id):
                 elif c == 'location': row.append(it['location'])
                 elif c == 'kpo': row.append(it['kpo'])
                 elif c == 'pairing_set': row.append(it['pairing_set'])
-                elif c == 'note1': row.append(it['note1'])
-                elif c == 'note2': row.append(it['note2'])
+                elif c == 'bi': row.append(it['bi'])
+                elif c == 'note': row.append(it['note'])
                 elif c == 'thb': row.append(it['thb'])
                 elif c == 'usd': row.append(it['usd'])
                 elif c == 'euro': row.append(it['eur'])
@@ -2286,12 +2542,10 @@ def export_customer_cart_excel(request, customer_id):
         ws.append([f"Total Quantity: {total_quantity} Pcs."])
         ws.append([f"Total Net Weight: {total_weight:.2f} g."])
         ws.append([f"Total Gross Weight: {gross_weight_val:.2f} g."])
-        ws.append(["Category"]) 
-        ws.append([f"Earring: {earring_count} Prs."])
-        ws.append([f"Ring: {ring_count} Pcs."])
-        ws.append([f"Bracelet and Bangle: {bracelet_bangle_count} Pcs."])
-        ws.append([f"Necklace: {necklace_count} Pcs."])
-        ws.append([f"Other Accessories (Ex. Beads): {others_count} Pcs."])
+        ws.append(["Category"])
+        for cat_name, cat_count in categories.items():
+            unit = "Prs." if "earring" in cat_name.lower() else "Pcs."
+            ws.append([f"{cat_name}: {cat_count} {unit}"])
         ws.append([f"Notes: {str(cart.notes) if cart.notes else ''}"])
         
         # Style the worksheet
@@ -2351,7 +2605,7 @@ def print_customer_cart(request, customer_id):
         # Parse selected columns
         selected_cols_param = request.GET.get('cols', '')
         selected_columns = [c.strip() for c in selected_cols_param.split(',') if c.strip()] or [
-            'product_code','qty','wt_g','price_thb','amount_thb','location','note1','note2','usd','euro'
+            'product_code','qty','wt_g','price_thb','amount_thb','location','bi','note','usd','euro'
         ]
 
         # Helpers
@@ -2402,7 +2656,7 @@ def print_customer_cart(request, customer_id):
                 pairing_values = []
             items_for_print.append({
                 'code': f"{p.child_code}",
-                'name': p.tag.name if p.tag else '-',
+                'description': p.description or '-',
                 'location': p.location or '-',
                 'quantity': ci.quantity,
                 'unit': unit,
@@ -2411,8 +2665,8 @@ def print_customer_cart(request, customer_id):
                 'image_url': image_url,
                 'weight': to_float(p.weight or 0),
                 'kpo': p.kpo or '-',
-                'note1': p.note_1 or '-',
-                'note2': p.note_2 or '-',
+                'bi': _compute_bi_value(p) or '-',
+                'note': p.note or '-',
                 'pairing_set': ", ".join(pairing_values) if pairing_values else '-',
                 'thb': to_float(computed['thai_baht'] or 0),
                 'usd': to_float(computed['usd_rate'] or 0),
@@ -2435,25 +2689,11 @@ def print_customer_cart(request, customer_id):
         deposit = float(cart.deposit_amount or 0)
         grand_total = total_amount + shipping - deposit
 
-        # Category summary breakdown to match app print layout
-        earring_count = 0
-        ring_count = 0
-        bracelet_bangle_count = 0
-        necklace_count = 0
-        others_count = 0
+        # Dynamic category summary based on actual cart product tags
+        categories = {}
         for item in cart_items:
-            tag_name = (item.product.tag.name if item.product.tag else '') or ''
-            t = tag_name.lower()
-            if 'earring' in t:
-                earring_count += item.quantity
-            elif 'ring' in t:
-                ring_count += item.quantity
-            elif 'bracelet' in t or 'bangle' in t:
-                bracelet_bangle_count += item.quantity
-            elif 'necklace' in t:
-                necklace_count += item.quantity
-            else:
-                others_count += item.quantity
+            tag_name = (item.product.tag.name if item.product.tag else '') or 'Other'
+            categories[tag_name] = categories.get(tag_name, 0) + item.quantity
         
         context = {
             'customer': customer,
@@ -2468,16 +2708,13 @@ def print_customer_cart(request, customer_id):
             'grand_total': grand_total,
             'print_date': timezone.now(),
             'selected_columns': selected_columns,
-            'earring_count': earring_count,
-            'ring_count': ring_count,
-            'bracelet_bangle_count': bracelet_bangle_count,
-            'necklace_count': necklace_count,
-            'others_count': others_count,
+            'categories': categories,
             'currency_label': currency,
             'salesperson_name': (getattr(cart, 'sales_person', None) or getattr(request.user, 'get_full_name', lambda: '')() or getattr(request.user, 'username', '')),
             'doc_ref': str(getattr(cart, 'doc_ref', None) or getattr(cart, 'id', '')),
             'customer_code': str(getattr(cart, 'customer_code', None) or getattr(customer, 'id', '')),
             'address_display': (cart.address_override or getattr(customer, 'address', '') or ''),
+            'special_notes': cart.special_notes or '',
         }
         
         return render(request, 'customer_cart_print.html', context)
@@ -2690,6 +2927,7 @@ def cart_api(request, customer_id):
                 shipping_amount = data.get('shipping_amount')
                 deposit_amount = data.get('deposit_amount')
                 notes = data.get('notes')
+                special_notes = data.get('special_notes')
                 sales_person = data.get('sales_person')
                 doc_ref = data.get('doc_ref')
                 customer_code = data.get('customer_code')
@@ -2699,6 +2937,7 @@ def cart_api(request, customer_id):
                     cart.shipping_amount = Decimal(str(shipping_amount or 0))
                     cart.deposit_amount = Decimal(str(deposit_amount or 0))
                     cart.notes = notes
+                    cart.special_notes = special_notes
                     cart.sales_person = sales_person
                     cart.doc_ref = doc_ref
                     cart.customer_code = customer_code
@@ -2709,12 +2948,12 @@ def cart_api(request, customer_id):
                     return JsonResponse({'success': False, 'message': str(e)})
             else:
                 return JsonResponse({'success': False, 'message': 'Invalid action'})
-                
+
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'message': 'Invalid JSON data'})
         except Exception as e:
             return JsonResponse({'success': False, 'message': str(e)})
-    
+
     elif request.method == 'GET':
         # Get cart details
         cart = Cart.objects.filter(customer=customer, is_active=True).first()
@@ -2785,13 +3024,14 @@ def cart_api(request, customer_id):
             'shipping_amount': float(cart.shipping_amount or 0),
             'deposit_amount': float(cart.deposit_amount or 0),
             'notes': cart.notes,
+            'special_notes': cart.special_notes,
             'sales_person': getattr(cart, 'sales_person', None),
             'doc_ref': getattr(cart, 'doc_ref', None),
             'customer_code': getattr(cart, 'customer_code', None),
             'gross_weight': float(getattr(cart, 'gross_weight', 0) or 0),
         }
         return JsonResponse({'cart_items': cart_items, 'cart_info': cart_info})
-    
+
     return JsonResponse({'success': False, 'message': 'Method not allowed'})
 
 
@@ -3047,8 +3287,8 @@ def cart_android_api(request, customer_id):
                     'usd_rate_value': computed['usd_rate_value'],
                     'euro_rate': computed['euro_rate'],
                     'euro_rate_value': computed['euro_rate_value'],
-                    'note_1': item.product.note_1,
-                    'note_2': item.product.note_2,
+                    'bi': _compute_bi_value(item.product),
+                    'note': item.product.note,
                     'tag': item.product.tag.name if item.product.tag else '',
                     'pairing_set': [ps.id for ps in item.product.pairing_set.all()],
                     'image_count': item.product.images.count(),
@@ -3075,6 +3315,7 @@ def cart_android_api(request, customer_id):
                 'shipping_amount': float(cart.shipping_amount or 0),
                 'deposit_amount': float(cart.deposit_amount or 0),
                 'notes': cart.notes,
+                'special_notes': cart.special_notes,
                 'sales_person': getattr(cart, 'sales_person', None),
                 'doc_ref': getattr(cart, 'doc_ref', None),
                 'customer_code': getattr(cart, 'customer_code', None),
@@ -3153,6 +3394,7 @@ def cart_android_api(request, customer_id):
                 shipping_amount = data.get('shipping_amount')
                 deposit_amount = data.get('deposit_amount')
                 notes = data.get('notes')
+                special_notes = data.get('special_notes')
                 sales_person = data.get('sales_person')
                 doc_ref = data.get('doc_ref')
                 customer_code = data.get('customer_code')
@@ -3162,6 +3404,7 @@ def cart_android_api(request, customer_id):
                     cart.shipping_amount = Decimal(str(shipping_amount or 0))
                     cart.deposit_amount = Decimal(str(deposit_amount or 0))
                     cart.notes = notes
+                    cart.special_notes = special_notes
                     cart.sales_person = sales_person
                     cart.doc_ref = doc_ref
                     cart.customer_code = customer_code

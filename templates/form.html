@@ -169,15 +169,15 @@
                                                 <div class="row">
                                                     <div class="col-md-6">
                                                         <div class="form-group">
-                                                            <label>Note 1</label>
-                                                            <input type="text" step="0.01" id="note_1" name="note_1" required class="form-control">
+                                                            <label>B/I</label>
+                                                            <input type="text" id="bi" name="bi" readonly class="form-control" placeholder="Auto-computed">
                                                         </div>
                                                     </div>
                                                     <!--/span-->
                                                     <div class="col-md-6">
                                                         <div class="form-group">
-                                                            <label>Note 2</label>
-                                                            <input type="text" step="0.01" id="note_2" required name="note_2" class="form-control">
+                                                            <label>Note</label>
+                                                            <input type="text" step="0.01" id="note" required name="note" class="form-control">
                                                         </div>
                                                     </div>
                                                     <!--/span-->
@@ -193,20 +193,78 @@
                                             </form>
                                             <form action="" method="POST" enctype="multipart/form-data" id="navpills-2" class="tab-pane">
                                                 {% csrf_token %}
-                                                <div class="input-group mb-3">
-                                                    <div class="input-group-prepend">
-                                                        <span class="input-group-text">Upload File</span>
+                                                <ul class="nav nav-tabs mb-3" id="importSubTabs" role="tablist">
+                                                    <li class="nav-item" role="presentation">
+                                                        <a class="nav-link active" id="import-file-tab" data-toggle="pill" href="#import-file" role="tab" aria-controls="import-file" aria-selected="true">File Upload</a>
+                                                    </li>
+                                                    <li class="nav-item" role="presentation">
+                                                        <a class="nav-link" id="import-google-tab" data-toggle="pill" href="#import-google" role="tab" aria-controls="import-google" aria-selected="false">Google Sheets</a>
+                                                    </li>
+                                                </ul>
+                                                <div class="tab-content">
+                                                    <div id="import-file" class="tab-pane fade show active" role="tabpanel" aria-labelledby="import-file-tab">
+                                                        <div class="input-group mb-3">
+                                                            <div class="input-group-prepend">
+                                                                <span class="input-group-text">Upload File</span>
+                                                            </div>
+                                                            <div class="custom-file">
+                                                                <input type="file" required class="custom-file-input" id="inputGroupFile01" onchange="fileNameCheck(this)" name="xlsx_file" accept=".xlsx, .xls">
+                                                                <label class="custom-file-label namechange" for="inputGroupFile01">Choose file</label>
+                                                            </div>
+                                                        </div>
+                                                        <input type="hidden" name="type" id="type" value="bulk-create">
+                                                        <div class="form-actions">
+                                                            <div class="card-body">
+                                                                <button type="submit" class="btn btn-dark"> <i class="fa fa-check"></i> Upload</button>
+                                                                <button type="button" class="btn btn-danger">Cancel</button>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <div class="custom-file">
-                                                        <input type="file" required class="custom-file-input" id="inputGroupFile01" onchange="fileNameCheck(this)" name="xlsx_file" accept=".xlsx, .xls">
-                                                        <label class="custom-file-label namechange" for="inputGroupFile01">Choose file</label>
-                                                    </div>
-                                                </div>
-                                                <input type="hidden" name="type" id="type" value="bulk-create">
-                                                <div class="form-actions">
-                                                    <div class="card-body">
-                                                        <button type="submit" class="btn btn-dark"> <i class="fa fa-check"></i> Upload</button>
-                                                        <button type="button" class="btn btn-danger">Cancel</button>
+                                                    <div id="import-google" class="tab-pane fade" role="tabpanel" aria-labelledby="import-google-tab">
+                                                        <div class="card mb-3">
+                                                            <div class="card-body">
+                                                                <h6 class="card-title mb-2"><i class="mdi mdi-google-spreadsheet"></i> Connected Google Sheet</h6>
+                                                                <div id="gsStatusWrap" class="d-flex align-items-center mb-2">
+                                                                    <span id="gsStatusBadge" class="badge badge-secondary mr-2">Checking…</span>
+                                                                    <span id="gsSheetName" class="text-muted"></span>
+                                                                </div>
+                                                                <div id="gsSheetLinkWrap" class="mb-2" style="display:none;">
+                                                                    <a id="gsSheetLink" href="#" target="_blank" rel="noopener noreferrer" class="text-primary"><i class="fa fa-external-link-alt"></i> <span id="gsSheetLinkText"></span></a>
+                                                                </div>
+                                                                <div id="gsErrorAlert" class="alert alert-danger py-2 mb-0" style="display:none;"></div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="card mb-3">
+                                                            <div class="card-body">
+                                                                <h6 class="card-title mb-2"><i class="fa fa-plug"></i> Connect a Google Sheet</h6>
+                                                                <p class="text-muted small mb-2">Paste the Google Sheet URL or ID. The sheet must be shared as <strong>"Anyone with the link can view"</strong>.</p>
+                                                                <div class="input-group mb-2">
+                                                                    <input type="text" id="gsUrlInput" class="form-control" placeholder="https://docs.google.com/spreadsheets/d/…/edit or spreadsheet ID">
+                                                                    <div class="input-group-append">
+                                                                        <button type="button" class="btn btn-dark" id="gsConnectBtn"><i class="fa fa-link"></i> Connect</button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="card mb-3" id="gsTabCard" style="display:none;">
+                                                            <div class="card-body">
+                                                                <h6 class="card-title mb-2"><i class="fa fa-layer-group"></i> Select Sheet Tab</h6>
+                                                                <div class="form-row align-items-end">
+                                                                    <div class="col-md-8">
+                                                                        <label class="small text-muted mb-1">Tab</label>
+                                                                        <select id="gsTabSelect" class="form-control"></select>
+                                                                    </div>
+                                                                    <div class="col-md-4 mt-2 mt-md-0">
+                                                                        <button type="button" class="btn btn-dark btn-block" id="gsApplyTabBtn"><i class="fa fa-check"></i> Apply</button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="form-actions">
+                                                            <div class="card-body">
+                                                                <button type="button" class="btn btn-success" id="gsImportBtn" disabled> <i class="fa fa-cloud-download"></i> Add/Update Products from Google Sheet</button>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </form>
@@ -622,6 +680,30 @@
 {% include "includes/messages.html" %}
 
 <script>
+    // Auto-compute B/I = (Base * 7) / (Increment * 7), 2 decimals.
+    // Empty when Base or Increment is missing, or Increment is 0.
+    function updateBI() {
+        var baseEl = document.getElementById('base');
+        var incEl = document.getElementById('increment');
+        var biEl = document.getElementById('bi');
+        if (!baseEl || !incEl || !biEl) return;
+        var baseVal = (baseEl.value || '').trim();
+        var incVal = (incEl.value || '').trim();
+        if (baseVal === '' || incVal === '') { biEl.value = ''; return; }
+        var baseNum = parseFloat(baseVal);
+        var incNum = parseFloat(incVal);
+        if (isNaN(baseNum) || isNaN(incNum) || incNum === 0) { biEl.value = ''; return; }
+        var bi = (baseNum * 7) / (incNum * 7);
+        biEl.value = bi.toFixed(2);
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        var baseEl = document.getElementById('base');
+        var incEl = document.getElementById('increment');
+        if (baseEl) { baseEl.addEventListener('input', updateBI); baseEl.addEventListener('change', updateBI); }
+        if (incEl) { incEl.addEventListener('input', updateBI); incEl.addEventListener('change', updateBI); }
+        updateBI();
+    });
+
     function get_single_data(pro_id) {
         axios.get(`/?pro_id=${pro_id}&get_req_type=individual`)
         .then(function (response) {
@@ -637,8 +719,8 @@
             document.getElementById('weight').value = data.weight;
             document.getElementById('base').value = data.base;
             document.getElementById('increment').value = data.increment;
-            document.getElementById('note_1').value = data.note_1;
-            document.getElementById('note_2').value = data.note_2;
+            document.getElementById('bi').value = data.bi || '';
+            document.getElementById('note').value = data.note || '';
             document.getElementById('description').value = data.description || '';
             document.getElementById('unit').value = data.unit || '';
             var tagSelect = document.getElementById('tag_id');
@@ -685,7 +767,7 @@
             $('.nav-pills .nav-link').removeClass('active');
             $(this).addClass('active');
             var target = $(this).attr('href');
-            $('.tab-content > .tab-pane').removeClass('show active');
+            $('#navpills-1, #navpills-2, #navpills-3, #navpills-4').removeClass('show active');
             $(target).addClass('show active');
             
             // Hide products section for Import and Upload Images tabs
@@ -805,6 +887,243 @@
             if (importCompleted) {
                 window.location.reload();
             }
+        });
+
+        // ---- Google Sheets import ----
+        let gsTabsCache = [];
+        let gsSelectedGid = '';
+
+        function gsSetBadge(text, cls) {
+            const $badge = $('#gsStatusBadge');
+            $badge.removeClass('badge-secondary badge-success badge-danger badge-warning')
+                  .addClass(cls || 'badge-secondary')
+                  .text(text);
+        }
+
+        function gsShowError(msg) {
+            const $alert = $('#gsErrorAlert');
+            if (msg) {
+                $alert.text(msg).show();
+            } else {
+                $alert.hide();
+            }
+        }
+
+        function gsRenderTabs(tabs, selectedGid) {
+            gsTabsCache = tabs || [];
+            const $sel = $('#gsTabSelect');
+            $sel.empty();
+            if (!gsTabsCache.length) {
+                $('#gsTabCard').hide();
+                return;
+            }
+            $('#gsTabCard').show();
+            gsTabsCache.forEach(function (t) {
+                const opt = $('<option></option>').val(t.gid).text(t.name);
+                if (String(t.gid) === String(selectedGid)) {
+                    opt.prop('selected', true);
+                }
+                $sel.append(opt);
+            });
+            gsSelectedGid = selectedGid || (gsTabsCache.length ? String(gsTabsCache[0].gid) : '');
+            $sel.val(gsSelectedGid);
+        }
+
+        function gsRenderStatus(resp) {
+            gsShowError('');
+            const sid = resp.spreadsheet_id || '';
+            const url = resp.spreadsheet_url || '';
+            const status = resp.connection_status || 'not_configured';
+            if (status === 'connected') {
+                gsSetBadge('Connected', 'badge-success');
+                $('#gsSheetName').text(resp.sheet_name ? ('Tab: ' + resp.sheet_name) : '');
+                if (sid && url) {
+                    $('#gsSheetLinkWrap').show();
+                    const linkUrl = url.startsWith('http') ? url : ('https://docs.google.com/spreadsheets/d/' + sid + '/edit');
+                    $('#gsSheetLink').attr('href', linkUrl);
+                    $('#gsSheetLinkText').text(url && url.length > 60 ? (url.substring(0, 57) + '…') : (url || linkUrl));
+                } else {
+                    $('#gsSheetLinkWrap').hide();
+                }
+                gsRenderTabs(resp.tabs || [], resp.sheet_gid);
+                $('#gsImportBtn').prop('disabled', false);
+            } else if (status === 'error') {
+                gsSetBadge('Error', 'badge-danger');
+                $('#gsSheetName').text('');
+                $('#gsSheetLinkWrap').hide();
+                gsShowError(resp.error || 'Could not connect to the Google Sheet.');
+                gsRenderTabs([], '');
+                $('#gsImportBtn').prop('disabled', true);
+            } else {
+                gsSetBadge('Not connected', 'badge-secondary');
+                $('#gsSheetName').text('');
+                $('#gsSheetLinkWrap').hide();
+                gsRenderTabs([], '');
+                $('#gsImportBtn').prop('disabled', true);
+            }
+        }
+
+        function loadGoogleSheetStatus() {
+            gsSetBadge('Checking…', 'badge-secondary');
+            gsShowError('');
+            $.ajax({
+                url: '{% url "google_sheet_status" %}',
+                method: 'GET',
+                success: function (resp) {
+                    if (resp.success) {
+                        gsRenderStatus(resp);
+                    } else {
+                        gsSetBadge('Error', 'badge-danger');
+                        gsShowError(resp.message || 'Could not load Google Sheet status.');
+                        $('#gsImportBtn').prop('disabled', true);
+                    }
+                },
+                error: function () {
+                    gsSetBadge('Error', 'badge-danger');
+                    gsShowError('Could not load Google Sheet status.');
+                    $('#gsImportBtn').prop('disabled', true);
+                }
+            });
+        }
+
+        $('#gsConnectBtn').on('click', function () {
+            const url = ($('#gsUrlInput').val() || '').trim();
+            if (!url) {
+                gsShowError('Please enter a Google Sheet URL or ID.');
+                return;
+            }
+            const $btn = $(this);
+            $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm mr-1" role="status" aria-hidden="true"></span> Connecting…');
+            gsShowError('');
+            gsSetBadge('Connecting…', 'badge-warning');
+            $.ajax({
+                url: '{% url "google_sheet_connect" %}',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ spreadsheet_url: url }),
+                headers: { 'X-CSRFToken': $('[name=csrfmiddlewaretoken]').first().val() },
+                success: function (resp) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-link"></i> Connect');
+                    if (resp.success) {
+                        gsRenderTabs(resp.tabs || [], resp.sheet_gid);
+                        gsSetBadge('Connected', 'badge-success');
+                        $('#gsSheetName').text(resp.sheet_name ? ('Tab: ' + resp.sheet_name) : '');
+                        const sid = resp.spreadsheet_id || '';
+                        $('#gsSheetLinkWrap').show();
+                        const linkUrl = url.startsWith('http') ? url : ('https://docs.google.com/spreadsheets/d/' + sid + '/edit');
+                        $('#gsSheetLink').attr('href', linkUrl);
+                        $('#gsSheetLinkText').text(url.length > 60 ? (url.substring(0, 57) + '…') : url);
+                        $('#gsImportBtn').prop('disabled', false);
+                        if (typeof toastr !== 'undefined') {
+                            toastr.success('Google Sheet connected successfully.');
+                        }
+                    } else {
+                        gsSetBadge('Error', 'badge-danger');
+                        gsShowError(resp.message || 'Could not connect to the Google Sheet.');
+                        $('#gsImportBtn').prop('disabled', true);
+                    }
+                },
+                error: function (xhr) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-link"></i> Connect');
+                    gsSetBadge('Error', 'badge-danger');
+                    let msg = 'Could not connect to the Google Sheet.';
+                    try {
+                        const data = xhr.responseJSON;
+                        if (data && data.message) msg = data.message;
+                    } catch (err) {}
+                    gsShowError(msg);
+                    $('#gsImportBtn').prop('disabled', true);
+                }
+            });
+        });
+
+        $('#gsApplyTabBtn').on('click', function () {
+            const gid = String($('#gsTabSelect').val() || '');
+            if (!gid) {
+                gsShowError('Please select a tab.');
+                return;
+            }
+            const $btn = $(this);
+            $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm mr-1" role="status" aria-hidden="true"></span> Applying…');
+            gsShowError('');
+            $.ajax({
+                url: '{% url "google_sheet_select_tab" %}',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ sheet_gid: gid }),
+                headers: { 'X-CSRFToken': $('[name=csrfmiddlewaretoken]').first().val() },
+                success: function (resp) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-check"></i> Apply');
+                    if (resp.success) {
+                        gsSelectedGid = gid;
+                        $('#gsSheetName').text(resp.sheet_name ? ('Tab: ' + resp.sheet_name) : '');
+                        if (typeof toastr !== 'undefined') {
+                            toastr.success('Tab selected: ' + resp.sheet_name);
+                        }
+                    } else {
+                        gsShowError(resp.message || 'Could not select the tab.');
+                    }
+                },
+                error: function (xhr) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-check"></i> Apply');
+                    let msg = 'Could not select the tab.';
+                    try {
+                        const data = xhr.responseJSON;
+                        if (data && data.message) msg = data.message;
+                    } catch (err) {}
+                    gsShowError(msg);
+                }
+            });
+        });
+
+        $('#gsImportBtn').on('click', function () {
+            const $btn = $(this);
+            $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm mr-1" role="status" aria-hidden="true"></span> Downloading…');
+            importCompleted = false;
+            $('#importCloseBtn').prop('disabled', true);
+            setImportProgress(0, 0);
+            setImportCounts(0, 0, 0);
+            resetImportErrors();
+            setImportStatus('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Downloading Google Sheet…');
+            $('#productImportProgressModal').modal('show');
+
+            $.ajax({
+                url: '{% url "google_sheet_import_start" %}',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({}),
+                headers: { 'X-CSRFToken': $('[name=csrfmiddlewaretoken]').first().val() },
+                success: function (resp) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-cloud-download"></i> Add/Update Products from Google Sheet');
+                    if (!resp.success) {
+                        setImportStatus(resp.message || 'Import failed to start');
+                        $('#importCloseBtn').prop('disabled', false);
+                        return;
+                    }
+                    setImportProgress(0, resp.total_rows);
+                    setImportStatus('<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>Processing rows…');
+                    stopImportPolling();
+                    pollImportStatus(resp.import_id);
+                    importPollTimer = setInterval(function () {
+                        pollImportStatus(resp.import_id);
+                    }, 600);
+                },
+                error: function (xhr) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-cloud-download"></i> Add/Update Products from Google Sheet');
+                    let msg = 'Import failed to start';
+                    try {
+                        const data = xhr.responseJSON;
+                        if (data && data.message) msg = data.message;
+                    } catch (err) {}
+                    setImportStatus(msg);
+                    $('#importCloseBtn').prop('disabled', false);
+                }
+            });
+        });
+
+        // Load Google Sheet status when the Google Sheets sub-tab is shown
+        $('a[href="#import-google"]').on('shown.bs.tab', function () {
+            loadGoogleSheetStatus();
         });
 
         $('#navpills-2').on('submit', function (e) {

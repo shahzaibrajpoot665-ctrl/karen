@@ -260,7 +260,7 @@
                 {% for col in selected_columns %}
                     {% if col == 'product_code' %}<th>Product Code</th>
                     {% elif col == 'picture' %}<th>Picture</th>
-                    {% elif col == 'name' %}<th>Product Name</th>
+                    {% elif col == 'description' %}<th>Description</th>
                     {% elif col == 'wt_g' %}<th>WT. (g)</th>
                     {% elif col == 'qty' %}<th>Quantity</th>
                     {% elif col == 'price_thb' %}<th>Unit Price ({{ currency_label }})</th>
@@ -268,8 +268,8 @@
                     {% elif col == 'location' %}<th>Location</th>
                     {% elif col == 'kpo' %}<th>KPO</th>
                     {% elif col == 'pairing_set' %}<th>Pairing Set</th>
-                    {% elif col == 'note1' %}<th>Note 1</th>
-                    {% elif col == 'note2' %}<th>Note 2</th>
+                    {% elif col == 'bi' %}<th>B/I</th>
+                    {% elif col == 'note' %}<th>Note</th>
                     {% elif col == 'thb' %}<th>THB</th>
                     {% elif col == 'usd' %}<th>USD</th>
                     {% elif col == 'euro' %}<th>EURO</th>
@@ -286,7 +286,7 @@
                         <td style="text-align:center;">
                             {% if it.image_url %}<img src="{{ it.image_url }}" alt="" style="height:40px;">{% else %}No Image{% endif %}
                         </td>
-                    {% elif col == 'name' %}<td>{{ it.name }}</td>
+                    {% elif col == 'description' %}<td>{{ it.description }}</td>
                     {% elif col == 'wt_g' %}<td>{{ it.weight|floatformat:2 }}</td>
                     {% elif col == 'qty' %}<td>{{ it.quantity }}</td>
                     {% elif col == 'price_thb' %}<td>{{ currency_label }} {{ it.unit|floatformat:2 }}</td>
@@ -294,8 +294,8 @@
                     {% elif col == 'location' %}<td>{{ it.location }}</td>
                     {% elif col == 'kpo' %}<td>{{ it.kpo }}</td>
                     {% elif col == 'pairing_set' %}<td>{{ it.pairing_set }}</td>
-                    {% elif col == 'note1' %}<td>{{ it.note1 }}</td>
-                    {% elif col == 'note2' %}<td>{{ it.note2 }}</td>
+                    {% elif col == 'bi' %}<td>{{ it.bi }}</td>
+                    {% elif col == 'note' %}<td>{{ it.note }}</td>
                     {% elif col == 'thb' %}<td>{{ it.thb|floatformat:2 }}</td>
                     {% elif col == 'usd' %}<td>{{ it.usd|floatformat:2 }}</td>
                     {% elif col == 'euro' %}<td>{{ it.eur|floatformat:2 }}</td>
@@ -336,17 +336,19 @@
                 <div>Total Net Weight: {{ total_weight|floatformat:2 }} g.</div>
                 <div>Total Gross Weight: {{ cart.gross_weight|floatformat:2 }} g.</div>
                 <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Category</div>
-                <div>Earring: {{ earring_count }} Prs.</div>
-                <div>Ring: {{ ring_count }} Pcs.</div>
-                <div>Bracelet and Bangle: {{ bracelet_bangle_count }} Pcs.</div>
-                <div>Necklace: {{ necklace_count }} Pcs.</div>
-                <div>Other Accessories (Ex. Beads): {{ others_count }} Pcs.</div>
+                {% for cat_name, cat_count in categories.items %}
+                <div>{{ cat_name }}: {{ cat_count }} {% if 'earring' in cat_name|lower %}Prs.{% else %}Pcs.{% endif %}</div>
+                {% endfor %}
                 <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Notes</div>
                 <div>{{ cart.notes }}</div>
+                {% if special_notes %}
+                <div style="margin-top:8px;"><strong>Special Notes:</strong> {{ special_notes }}</div>
+                {% endif %}
             </td>
             <td style="width:45%; vertical-align:top;">
                 <div style="border:1px solid #000; min-height:220px; padding:10px;">
                     <div style="font-weight:700; text-transform:uppercase; margin-bottom:6px; text-align:center;">Notes</div>
+                    {% if special_notes %}<div>{{ special_notes }}</div>{% endif %}
                 </div>
             </td>
         </tr>

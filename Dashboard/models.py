@@ -2,6 +2,27 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from decimal import Decimal
+
+
+def compute_bi(base, increment):
+    """Compute B/I = (Base * 7) / (Increment * 7), rounded to 2 decimals.
+
+    Returns None when base or increment is missing/empty, or when increment is 0.
+    """
+    if base is None or increment is None:
+        return None
+    if base == '' or increment == '':
+        return None
+    try:
+        base_d = Decimal(str(base))
+        inc_d = Decimal(str(increment))
+    except Exception:
+        return None
+    if inc_d == 0:
+        return None
+    val = (base_d * Decimal('7')) / (inc_d * Decimal('7'))
+    return str(val.quantize(Decimal('0.01')))
 
 # Create your models here.
 class User(AbstractUser):
@@ -55,15 +76,20 @@ class Product(models.Model):
     weight = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
     base = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     increment = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    note_1 = models.TextField(null=True, blank=True)
-    note_2 = models.TextField(null=True, blank=True)
+    note = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     unit = models.CharField(max_length=64, null=True, blank=True)
     tag = models.ForeignKey(Tag, null=True, blank=True, on_delete=models.SET_NULL)
 
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
-    
+
+    @property
+    def bi(self):
+        """Auto-computed B/I value: (Base * 7) / (Increment * 7), 2 decimals.
+        Returns None when base/increment missing or increment is 0."""
+        return compute_bi(self.base, self.increment)
+
     def save(self, *args, **kwargs):
         """Override save to automatically link images based on persistent links"""
         is_new = self.pk is None
@@ -113,6 +139,7 @@ class Cart(models.Model):
     shipping_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     deposit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     notes = models.TextField(null=True, blank=True)
+    special_notes = models.TextField(null=True, blank=True)
     sales_person = models.CharField(max_length=255, null=True, blank=True)
     doc_ref = models.CharField(max_length=255, null=True, blank=True)
     customer_code = models.CharField(max_length=255, null=True, blank=True)
@@ -153,4 +180,17 @@ class PriceSetting(models.Model):
             'usd_rate': 1,
             'euro_rate': 1,
         })
+        return obj
+
+
+class GoogleSheetConfig(models.Model):
+    spreadsheet_id = models.CharField(max_length=255, blank=True, default='')
+    spreadsheet_url = models.TextField(blank=True, default='')
+    sheet_gid = models.CharField(max_length=64, blank=True, default='')
+    sheet_name = models.CharField(max_length=255, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get_singleton(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
         return obj
