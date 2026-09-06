@@ -1435,19 +1435,17 @@ def single_product(request):
             
         if prod:
             prices = _get_computed_prices(prod)
-            # Get matching items (pairing set products)
+            # Get matching items (products with the same parent code)
             matching_items = []
-            for pairing in prod.pairing_set.all():
-                matching_products = Product.objects.prefetch_related('images').filter(
-                    pairing_set__pair_value=pairing.pair_value
-                ).exclude(id=prod.id)[:5]  # Limit to 5 matching items
-                
-                for matching_prod in matching_products:
-                    matching_items.append({
-                        'code': matching_prod.child_code,
-                        'parent_code': matching_prod.parent_code,
-                        'image_url': matching_prod.images.first().image.url if matching_prod.images.exists() else None
-                    })
+            matching_products = Product.objects.prefetch_related('images').filter(
+                parent_code=prod.parent_code
+            ).exclude(id=prod.id)[:20]
+            for matching_prod in matching_products:
+                matching_items.append({
+                    'code': matching_prod.child_code,
+                    'parent_code': matching_prod.parent_code,
+                    'image_url': matching_prod.images.first().image.url if matching_prod.images.exists() else None
+                })
             
             prod_data = {
                 'success': True,
@@ -3289,6 +3287,7 @@ def cart_android_api(request, customer_id):
                     'euro_rate_value': computed['euro_rate_value'],
                     'bi': _compute_bi_value(item.product),
                     'note': item.product.note,
+                    'description': item.product.description,
                     'tag': item.product.tag.name if item.product.tag else '',
                     'pairing_set': [ps.id for ps in item.product.pairing_set.all()],
                     'image_count': item.product.images.count(),
