@@ -26,7 +26,7 @@ from .filters import *
 import json
 from barcode.writer import ImageWriter
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Q, Sum
 import io
 import csv as _csv
 import urllib.request
@@ -2143,8 +2143,41 @@ def search_products_for_linking(request):
     return JsonResponse({'success': False, 'message': 'Invalid request method'})
 
 
+@csrf_exempt
+def product_search_android(request):
+    """Public product search endpoint for the Android app autocomplete.
 
-# Product.objects.all().delete()
+    Searches products by parent_code or child_code (case-insensitive,
+    partial match) and returns up to 20 results with code, location and
+    image url so the app can display a dropdown similar to the web's
+    Cart Management -> Add Product to Cart product selector.
+    """
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Only GET method allowed'}, status=405)
+    query = (request.GET.get('q') or '').strip()
+    if len(query) < 1:
+        return JsonResponse({'success': True, 'products': []})
+    products = Product.objects.prefetch_related('images').filter(
+        Q(parent_code__icontains=query) | Q(child_code__icontains=query)
+    ).order_by('parent_code', 'child_code')[:20]
+    results = []
+    for p in products:
+        image_url = ''
+        if p.images.exists():
+            first_image = p.images.first()
+            image_url = request.build_absolute_uri(first_image.image.url)
+        results.append({
+            'id': p.id,
+            'parent_code': p.parent_code,
+            'child_code': p.child_code,
+            'code': f"{p.parent_code}-{p.child_code}",
+            'location': p.location or '',
+            'image_url': image_url,
+        })
+    return JsonResponse({'success': True, 'products': results, 'count': len(results)})
+
+
+
 # print('delete')
 # print(Image.objects.count())
 # a = Product.objects.all()
@@ -2481,7 +2514,7 @@ def export_customer_cart_excel(request, customer_id):
                 'kpo': p.kpo or '-',
                 'pairing_set': ', '.join([ps.pair_value for ps in p.pairing_set.all()]) if hasattr(p, 'pairing_set') else '-',
                 'bi': _compute_bi_value(p) or '-',
-                'note': p.note or '-',
+                'note': p.note or '',
                 'thb': to_float(computed['thai_baht'] or 0),
                 'usd': to_float(computed['usd_rate'] or 0),
                 'eur': to_float(computed['euro_rate'] or 0),
@@ -2536,8 +2569,8 @@ def export_customer_cart_excel(request, customer_id):
         ws.append(["SUMMARY"]) 
         ws.cell(row=ws.max_row, column=1).fill = black_fill
         ws.cell(row=ws.max_row, column=1).font = white_font
-        ws.append([f"Total Items: {len(items_for_export)} Pcs."])
-        ws.append([f"Total Quantity: {total_quantity} Pcs."])
+        ws.append([f"Total Styles: {len(items_for_export)}"])
+        ws.append([f"Total Quantity: {total_quantity}"])
         ws.append([f"Total Net Weight: {total_weight:.2f} g."])
         ws.append([f"Total Gross Weight: {gross_weight_val:.2f} g."])
         ws.append(["Category"])
@@ -2664,7 +2697,7 @@ def print_customer_cart(request, customer_id):
                 'weight': to_float(p.weight or 0),
                 'kpo': p.kpo or '-',
                 'bi': _compute_bi_value(p) or '-',
-                'note': p.note or '-',
+                'note': p.note or '',
                 'pairing_set': ", ".join(pairing_values) if pairing_values else '-',
                 'thb': to_float(computed['thai_baht'] or 0),
                 'usd': to_float(computed['usd_rate'] or 0),
@@ -3215,6 +3248,7 @@ def add_to_cart_bulk_android(request):
         product_code = data.get('product_code', '').strip()
         quantity = int(data.get('quantity', 1))
         for_locked = bool(data.get('for_locked', True))
+        mode = data.get('mode', 'add')  # "add" (default) or "set"
         if not product_code:
             return JsonResponse({'error': 'Product code is required'}, status=400)
         if quantity <= 0:
@@ -3243,13 +3277,56 @@ def add_to_cart_bulk_android(request):
             cart, _ = Cart.objects.get_or_create(customer=customer, is_active=True)
             item, created = CartItem.objects.get_or_create(cart=cart, product=product, defaults={'quantity': quantity})
             if not created:
-                item.quantity += quantity
+                if mode == 'set':
+                    item.quantity = quantity
+                else:
+                    item.quantity += quantity
                 item.save(update_fields=['quantity'])
             added_count += 1
 
         return JsonResponse({'success': True, 'affected_customers': added_count})
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+
+
+@csrf_exempt
+def product_quantity_in_locked_carts(request):
+    """Return the total quantity of a given product across all locked customers'
+    active carts. Used by the Android Add-to-Cart screen to show the current
+    total and switch between add/update (set) modes."""
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Only GET method allowed'}, status=405)
+    product_code = (request.GET.get('product_code') or '').strip()
+    if not product_code:
+        return JsonResponse({'error': 'Product code is required'}, status=400)
+
+    product = Product.objects.filter(Q(child_code__iexact=product_code) | Q(parent_code__iexact=product_code)).first()
+    if not product and '-' in product_code:
+        try:
+            parent_part, child_part = product_code.rsplit('-', 1)
+            product = Product.objects.filter(parent_code__iexact=parent_part.strip(), child_code__iexact=child_part.strip()).first()
+        except ValueError:
+            product = None
+    if not product:
+        return JsonResponse({'error': 'Product not found'}, status=404)
+
+    locked_customers = Customer.objects.filter(locked=True)
+    total_qty = CartItem.objects.filter(
+        cart__customer__in=locked_customers,
+        cart__is_active=True,
+        product=product
+    ).aggregate(total=Sum('quantity'))['total'] or 0
+    customer_count = CartItem.objects.filter(
+        cart__customer__in=locked_customers,
+        cart__is_active=True,
+        product=product
+    ).values('cart__customer').distinct().count()
+
+    return JsonResponse({
+        'total_quantity': total_qty,
+        'customer_count': customer_count,
+        'locked_customer_count': locked_customers.count(),
+    })
 
 
 @csrf_exempt

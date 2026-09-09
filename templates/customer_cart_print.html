@@ -183,7 +183,7 @@
         }
         
         .notes-column {
-            max-width: 150px;
+            max-width: 280px;
             word-wrap: break-word;
         }
         
@@ -295,7 +295,7 @@
                     {% elif col == 'kpo' %}<td>{{ it.kpo }}</td>
                     {% elif col == 'pairing_set' %}<td>{{ it.pairing_set }}</td>
                     {% elif col == 'bi' %}<td>{{ it.bi }}</td>
-                    {% elif col == 'note' %}<td>{{ it.note }}</td>
+                    {% elif col == 'note' %}<td class="notes-column">{{ it.note }}</td>
                     {% elif col == 'thb' %}<td>{{ it.thb|floatformat:2 }}</td>
                     {% elif col == 'usd' %}<td>{{ it.usd|floatformat:2 }}</td>
                     {% elif col == 'euro' %}<td>{{ it.eur|floatformat:2 }}</td>
@@ -331,8 +331,8 @@
     <table style="width:100%; border-collapse:collapse; margin-top:8px; font-size:12px;">
         <tr>
             <td style="width:55%; vertical-align:top; padding-right:12px;">
-                <div>Total Items: {{ total_items }} Pcs.</div>
-                <div>Total Quantity: {{ total_quantity }} Pcs.</div>
+                <div>Total Styles: {{ total_items }}</div>
+                <div>Total Quantity: {{ total_quantity }}</div>
                 <div>Total Net Weight: {{ total_weight|floatformat:2 }} g.</div>
                 <div>Total Gross Weight: {{ cart.gross_weight|floatformat:2 }} g.</div>
                 <div style="margin-top:10px; font-weight:700; text-decoration:underline;">Category</div>

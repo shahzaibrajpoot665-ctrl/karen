@@ -46,6 +46,8 @@ urlpatterns = [
     path('api/customers-android/locked-count/', views.customers_android_locked_count_api, name='customers_android_locked_count_api'),
     path('api/customers-android/locked-ids/', views.customers_android_locked_ids_api, name='customers_android_locked_ids_api'),
     path('api/cart-android/add-bulk/', views.add_to_cart_bulk_android, name='add_to_cart_bulk_android'),
+    path('api/product-search-android/', views.product_search_android, name='product_search_android'),
+    path('api/cart-android/product-quantity/', views.product_quantity_in_locked_carts, name='product_quantity_in_locked_carts'),
     path('api/customer/<int:customer_id>/cart-android/', views.cart_android_api, name='cart_android_api'),
     path('api/price-setting/', views.price_setting_api, name='price_setting_api'),
 ]
