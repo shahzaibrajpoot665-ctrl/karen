@@ -121,6 +121,11 @@ def _delete_product_generated_images(sender, instance, **kwargs):
 class Customer(models.Model):
     name = models.CharField(max_length=255)
     locked = models.BooleanField(default=False)
+    company_name = models.CharField(max_length=255, null=True, blank=True)
+    contact_person = models.CharField(max_length=255, null=True, blank=True)
+    address = models.TextField(null=True, blank=True)
+    phone = models.CharField(max_length=255, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -159,6 +164,7 @@ class CartItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField(default=1)
     added_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(null=True, blank=True)
     
     def __str__(self):
         return f"{self.quantity}x {self.product.parent_code}-{self.product.child_code}"

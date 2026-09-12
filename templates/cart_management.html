@@ -108,6 +108,26 @@
                         <input type="text" class="form-control" id="editCustomerName" required>
                         <input type="hidden" id="editCustomerId">
                     </div>
+                    <div class="form-group">
+                        <label for="editCompanyName">Company Name</label>
+                        <input type="text" class="form-control" id="editCompanyName">
+                    </div>
+                    <div class="form-group">
+                        <label for="editContactPerson">Contact Person</label>
+                        <input type="text" class="form-control" id="editContactPerson">
+                    </div>
+                    <div class="form-group">
+                        <label for="editCustomerAddress">Address</label>
+                        <textarea class="form-control" id="editCustomerAddress" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="editCustomerPhone">Phone</label>
+                        <input type="text" class="form-control" id="editCustomerPhone">
+                    </div>
+                    <div class="form-group">
+                        <label for="editCustomerEmail">Email</label>
+                        <input type="email" class="form-control" id="editCustomerEmail">
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -185,9 +205,19 @@ $(document).ready(function() {
     $(document).on('click', '.edit-customer', function() {
         const customerId = $(this).data('id');
         const customerName = $(this).data('name');
-        
+        const companyName = $(this).data('company_name') || '';
+        const contactPerson = $(this).data('contact_person') || '';
+        const address = $(this).data('address') || '';
+        const phone = $(this).data('phone') || '';
+        const email = $(this).data('email') || '';
+
         $('#editCustomerId').val(customerId);
         $('#editCustomerName').val(customerName);
+        $('#editCompanyName').val(companyName);
+        $('#editContactPerson').val(contactPerson);
+        $('#editCustomerAddress').val(address);
+        $('#editCustomerPhone').val(phone);
+        $('#editCustomerEmail').val(email);
         $('#editCustomerModal').modal('show');
     });
 
@@ -195,7 +225,7 @@ $(document).ready(function() {
     $('#saveCustomerBtn').click(function() {
         const customerId = $('#editCustomerId').val();
         const customerName = $('#editCustomerName').val().trim();
-        
+
         if (!customerName) {
             alert('Please enter a customer name');
             return;
@@ -211,7 +241,12 @@ $(document).ready(function() {
             data: JSON.stringify({
                 action: 'update',
                 id: customerId,
-                name: customerName
+                name: customerName,
+                company_name: $('#editCompanyName').val().trim(),
+                contact_person: $('#editContactPerson').val().trim(),
+                address: $('#editCustomerAddress').val().trim(),
+                phone: $('#editCustomerPhone').val().trim(),
+                email: $('#editCustomerEmail').val().trim()
             }),
             success: function(response) {
                 if (response.success) {
@@ -297,7 +332,7 @@ function loadCustomers() {
                             <a href="/customer/${customer.id}/cart/" class="btn btn-sm btn-info" title="View Cart">
                                 <i class="fa fa-shopping-cart"></i> View Cart
                             </a>
-                            <button class="btn btn-sm btn-warning edit-customer" data-id="${customer.id}" data-name="${customer.name}" title="Edit Customer">
+                            <button class="btn btn-sm btn-warning edit-customer" data-id="${customer.id}" data-name="${customer.name}" data-company_name="${customer.company_name || ''}" data-contact_person="${customer.contact_person || ''}" data-address="${customer.address || ''}" data-phone="${customer.phone || ''}" data-email="${customer.email || ''}" title="Edit Customer">
                                 <i class="fa fa-edit"></i>
                             </button>
                             <button class="btn btn-sm btn-danger delete-customer" data-id="${customer.id}" data-name="${customer.name}" title="Delete Customer">

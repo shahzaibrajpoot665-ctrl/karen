@@ -67,6 +67,81 @@ def _parse_price_to_decimal(val):
     except Exception:
         return None
 
+def _download_and_link_external_images(product, image_url_data):
+    """Download external HTTP/HTTPS image URLs and link them to the product.
+
+    For non-HTTP URLs (plain filenames), falls back to existing filename-based
+    matching against already-uploaded Image objects.
+    """
+    import logging
+    from django.core.files.base import ContentFile
+    logger = logging.getLogger(__name__)
+
+    if not image_url_data:
+        return
+
+    for url in image_url_data:
+        url_str = str(url).strip()
+        if not url_str:
+            continue
+
+        filename = url_str.rstrip('/').split('/')[-1]
+        if not filename:
+            continue
+
+        # If it's an HTTP(S) URL, try to download the external image
+        if url_str.lower().startswith(('http://', 'https://')):
+            existing_path = f'product_images/{filename}'
+            existing = Image.objects.filter(image=existing_path).first()
+            if existing:
+                if not product.images.filter(id=existing.id).exists():
+                    product.images.add(existing)
+                continue
+
+            # Download the external image
+            try:
+                req = urllib.request.Request(
+                    url_str,
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                )
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    image_data = response.read()
+                    content_type = response.headers.get('Content-Type', '')
+
+                    # Determine extension from content type or URL
+                    lower_url = url_str.lower()
+                    if 'png' in content_type or lower_url.endswith('.png'):
+                        ext = '.png'
+                    elif 'webp' in content_type or lower_url.endswith('.webp'):
+                        ext = '.webp'
+                    elif 'gif' in content_type or lower_url.endswith('.gif'):
+                        ext = '.gif'
+                    elif 'jpeg' in content_type or 'jpg' in content_type or lower_url.endswith('.jpg') or lower_url.endswith('.jpeg'):
+                        ext = '.jpg'
+                    else:
+                        ext = '.jpg'
+
+                    # Ensure filename has an extension
+                    if '.' not in filename:
+                        filename = filename + ext
+
+                    img = Image.objects.create(image=ContentFile(image_data, name=filename))
+                    product.images.add(img)
+                    logger.info(f"Downloaded external image {url_str} -> {img.image.name}")
+            except urllib.error.URLError as e:
+                logger.warning(f"Failed to download external image {url_str}: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"Error processing external image {url_str}: {e}")
+                continue
+        else:
+            # Non-HTTP URL: treat as filename, match existing Image objects
+            existing_path = f'product_images/{filename}'
+            existing = Image.objects.filter(image=existing_path).first()
+            if existing:
+                if not product.images.filter(id=existing.id).exists():
+                    product.images.add(existing)
+
 EXPECTED_IMPORT_COLUMNS = [
     'Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set',
     'weight', 'base', 'increment', 'Category', 'Unit', 'Product Description',
@@ -395,19 +470,8 @@ def _process_product_import_job(import_id, file_path, max_import_rows):
                     product.save()
 
                 if image_url_data:
-                    image_filenames = []
-                    for url in image_url_data:
-                        url_str = str(url).strip()
-                        if not url_str:
-                            continue
-                        filename = url_str.rstrip('/').split('/')[-1]
-                        if filename:
-                            image_filenames.append(f'product_images/{filename}')
-                    if image_filenames:
-                        url_image_files = Image.objects.filter(image__in=image_filenames)
-                        if url_image_files.exists():
-                            product.images.add(*url_image_files)
-                            product.save()
+                    _download_and_link_external_images(product, image_url_data)
+                    product.save()
 
                 if not product.qrcode_image:
                     qr_img = make(child_code_str)
@@ -1099,19 +1163,8 @@ def form_view(request):
                         product.save()
 
                     if image_url_data:
-                        image_filenames = []
-                        for url in image_url_data:
-                            url_str = str(url).strip()
-                            if not url_str:
-                                continue
-                            filename = url_str.rstrip('/').split('/')[-1]
-                            if filename:
-                                image_filenames.append(f'product_images/{filename}')
-                        if image_filenames:
-                            url_image_files = Image.objects.filter(image__in=image_filenames)
-                            if url_image_files.exists():
-                                product.images.add(*url_image_files)
-                                product.save()
+                        _download_and_link_external_images(product, image_url_data)
+                        product.save()
 
                     if not product.qrcode_image:
                         qr_img = make(child_code)
@@ -2302,6 +2355,11 @@ def customer_api(request):
                 'cart_count': customer.carts.count(),
                 'active_cart_id': active_cart.id if active_cart else None,
                 'active_cart_items': active_cart.get_total_items() if active_cart else 0,
+                'company_name': getattr(customer, 'company_name', '') or '',
+                'contact_person': getattr(customer, 'contact_person', '') or '',
+                'address': getattr(customer, 'address', '') or '',
+                'phone': getattr(customer, 'phone', '') or '',
+                'email': getattr(customer, 'email', '') or '',
             })
         return JsonResponse({'customers': customer_list})
     
@@ -2332,14 +2390,19 @@ def customer_api(request):
             elif action == 'update':
                 customer_id = data.get('id')
                 name = data.get('name', '').strip()
-                
+
                 if not customer_id or not name:
                     return JsonResponse({'success': False, 'message': 'Customer ID and name are required'})
-                
+
                 customer = get_object_or_404(Customer, id=customer_id)
                 customer.name = name
+                customer.company_name = (data.get('company_name') or '').strip() or None
+                customer.contact_person = (data.get('contact_person') or '').strip() or None
+                customer.address = (data.get('address') or '').strip() or None
+                customer.phone = (data.get('phone') or '').strip() or None
+                customer.email = (data.get('email') or '').strip() or None
                 customer.save()
-                
+
                 return JsonResponse({
                     'success': True,
                     'message': f'Customer updated successfully!',
@@ -2379,17 +2442,18 @@ def export_customer_cart_excel(request, customer_id):
     try:
         customer = get_object_or_404(Customer, id=customer_id)
         cart, created = Cart.objects.get_or_create(customer=customer, is_active=True)
-        cart_items = CartItem.objects.filter(cart=cart).select_related('product')
-        
+        cart_items = CartItem.objects.filter(cart=cart).select_related('product', 'product__tag')
+
         # Create workbook and worksheet
         wb = Workbook()
         ws = wb.active
         ws.title = f'Cart - {customer.name}'
-        
+
         from openpyxl.styles import Font, Alignment, Border, Side
         thin = Side(style='thin', color='000000')
         border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
+        # --- TOP SECTION: Customer Info + Document Info (original layout) ---
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
         ci_title = ws.cell(row=1, column=1, value='CUSTOMER INFO')
         ci_title.font = Font(bold=True)
@@ -2439,16 +2503,10 @@ def export_customer_cart_excel(request, customer_id):
                 ws.cell(row=r, column=c).border = border
 
         ws.append([])
-        
+
         currency = (request.GET.get('currency') or 'THB').upper()
         if currency not in ('THB', 'USD', 'EUR'):
             currency = 'THB'
-        
-        # Parse selected columns from query params
-        selected_cols_param = request.GET.get('cols', '')
-        selected_cols = [c.strip() for c in selected_cols_param.split(',') if c.strip()] or [
-            'product_code', 'location', 'qty', 'wt_g', 'price_thb', 'amount_thb', 'usd', 'euro', 'bi', 'note'
-        ]
 
         def to_float(val):
             try:
@@ -2459,26 +2517,18 @@ def export_customer_cart_excel(request, customer_id):
                 except Exception:
                     return 0.0
 
-        headers = []
-        for c in selected_cols:
-            if c == 'product_code': headers.append('Product Code')
-            elif c == 'picture': headers.append('Picture')
-            elif c == 'description': headers.append('Description')
-            elif c == 'wt_g': headers.append('WT. (g)')
-            elif c == 'qty': headers.append('Quantity')
-            elif c == 'price_thb': headers.append(f'Unit Price ({currency})')
-            elif c == 'amount_thb': headers.append(f'Total Price ({currency})')
-            elif c == 'location': headers.append('Location')
-            elif c == 'kpo': headers.append('KPO')
-            elif c == 'pairing_set': headers.append('Pairing Set')
-            elif c == 'bi': headers.append('B/I')
-            elif c == 'note': headers.append('Note')
-            elif c == 'thb': headers.append('THB')
-            elif c == 'usd': headers.append('USD')
-            elif c == 'euro': headers.append('EURO')
-        product_header_row = ws.max_row + 1
-        ws.append(headers)
+        # --- CENTER SECTION: 39-column flat table ---
+        headers = [
+            'Invoice Date', 'Doc. Ref.', 'Doc. Note', 'Parent Code', 'Child Code',
+            'Description', 'Weight', 'Quantity', 'Unit Price', 'Amount',
+            'Total', 'Shipping Cost', 'Deposit', 'Grand Total',
+            'Total Style', 'Total Quantity', 'Total Net Weight', 'Total Gross Weight',
+            'Earring', 'Ring', 'Pendant', 'Necklace', 'Bracelet and Bangle', 'Anklet', 'Other Accessories',
+            'Category', 'Pairing_Set', 'Base', 'Incremental', 'Location', 'KPO', 'Note', 'Image URL',
+            'Customer Code', 'Company Name', 'Contact Person', 'Address', 'Phone', 'Email', 'Salesperson',
+        ]
 
+        # Pre-compute cart-level data
         items_for_export = []
         total_amount = 0.0
         total_quantity = 0
@@ -2489,57 +2539,109 @@ def export_customer_cart_excel(request, customer_id):
             computed = _get_computed_prices(p)
             if currency == 'USD':
                 unit = to_float(computed['usd_rate'] or 0)
-                label = 'USD'
             elif currency == 'EUR':
                 unit = to_float(computed['euro_rate'] or 0)
-                label = 'EUR'
             else:
                 unit = to_float(computed['thai_baht'] or 0)
-                label = 'THB'
             amount = unit * ci.quantity if unit else 0.0
             total_amount += amount
             total_quantity += ci.quantity
             total_weight += to_float(p.weight or 0) * ci.quantity
             tag_name = (p.tag.name if p.tag else '') or 'Other'
             categories[tag_name] = categories.get(tag_name, 0) + ci.quantity
+            pairing_values = ', '.join([ps.pair_value for ps in p.pairing_set.all()]) if hasattr(p, 'pairing_set') else ''
             items_for_export.append({
-                'code': f"{p.child_code}",
-                'image_url': '',
-                'description': p.description or '-',
+                'parent_code': p.parent_code or '',
+                'child_code': p.child_code or '',
+                'description': p.description or '',
                 'weight': to_float(p.weight or 0),
                 'quantity': ci.quantity,
                 'unit': unit,
                 'amount': amount,
-                'location': p.location or '-',
-                'kpo': p.kpo or '-',
-                'pairing_set': ', '.join([ps.pair_value for ps in p.pairing_set.all()]) if hasattr(p, 'pairing_set') else '-',
-                'bi': _compute_bi_value(p) or '-',
-                'note': p.note or '',
-                'thb': to_float(computed['thai_baht'] or 0),
-                'usd': to_float(computed['usd_rate'] or 0),
-                'eur': to_float(computed['euro_rate'] or 0),
+                'tag_name': tag_name,
+                'pairing_set': pairing_values,
+                'base': to_float(p.base or 0),
+                'increment': to_float(p.increment or 0),
+                'location': p.location or '',
+                'kpo': p.kpo or '',
+                'note': (ci.note if ci.note else (p.note or '')),
+                'image_url': request.build_absolute_uri(p.images.first().image.url) if p.images.exists() else '',
             })
 
+        shipping_amount = float(cart.shipping_amount or 0)
+        deposit_amount = float(cart.deposit_amount or 0)
+        grand_total = (total_amount + shipping_amount) - deposit_amount
+        gross_weight_val = float(cart.gross_weight or 0)
+        total_styles = len(items_for_export)
+
+        def cat_count(name):
+            return categories.get(name, 0)
+        earring_count = cat_count('Earring')
+        ring_count = cat_count('Ring')
+        pendant_count = cat_count('Pendant')
+        necklace_count = cat_count('Necklace')
+        bracelet_count = cat_count('Bracelet and Bangle')
+        anklet_count = cat_count('Anklet')
+        other_count = cat_count('Other Accessories')
+
+        customer_code = str(getattr(cart, 'customer_code', None) or getattr(customer, 'id', ''))
+        company_name = getattr(customer, 'company_name', '') or ''
+        contact_person = getattr(customer, 'contact_person', '') or customer.name or ''
+        phone = getattr(customer, 'phone', '') or ''
+        email = getattr(customer, 'email', '') or ''
+        doc_ref = str(getattr(cart, 'doc_ref', None) or getattr(cart, 'id', ''))
+        doc_note = cart.notes or ''
+        invoice_date = timezone.now().strftime('%Y-%m-%d %H:%M')
+
+        product_header_row = ws.max_row + 1
+        ws.append(headers)
+
         for it in items_for_export:
-            row = []
-            for c in selected_cols:
-                if c == 'product_code': row.append(it['code'])
-                elif c == 'picture': row.append(it['image_url'])
-                elif c == 'description': row.append(it['description'])
-                elif c == 'wt_g': row.append(it['weight'])
-                elif c == 'qty': row.append(it['quantity'])
-                elif c == 'price_thb': row.append(it['unit'])
-                elif c == 'amount_thb': row.append(it['amount'])
-                elif c == 'location': row.append(it['location'])
-                elif c == 'kpo': row.append(it['kpo'])
-                elif c == 'pairing_set': row.append(it['pairing_set'])
-                elif c == 'bi': row.append(it['bi'])
-                elif c == 'note': row.append(it['note'])
-                elif c == 'thb': row.append(it['thb'])
-                elif c == 'usd': row.append(it['usd'])
-                elif c == 'euro': row.append(it['eur'])
+            row = [
+                invoice_date,
+                doc_ref,
+                doc_note,
+                it['parent_code'],
+                it['child_code'],
+                it['description'],
+                it['weight'],
+                it['quantity'],
+                it['unit'],
+                it['amount'],
+                total_amount,
+                shipping_amount,
+                deposit_amount,
+                grand_total,
+                total_styles,
+                total_quantity,
+                total_weight,
+                gross_weight_val,
+                earring_count,
+                ring_count,
+                pendant_count,
+                necklace_count,
+                bracelet_count,
+                anklet_count,
+                other_count,
+                it['tag_name'],
+                it['pairing_set'],
+                it['base'],
+                it['increment'],
+                it['location'],
+                it['kpo'],
+                it['note'],
+                it['image_url'],
+                customer_code,
+                company_name,
+                contact_person,
+                address_display,
+                phone,
+                email,
+                salesperson_name,
+            ]
             ws.append(row)
 
+        # --- BOTTOM SECTION: Totals + Summary (original layout) ---
         ws.append([])
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         label_font = Font(bold=True)
@@ -2549,37 +2651,33 @@ def export_customer_cart_excel(request, customer_id):
         border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
         start_row = ws.max_row + 1
-        shipping_amount = float(cart.shipping_amount or 0)
-        deposit_amount = float(cart.deposit_amount or 0)
-        grand_total = (total_amount + shipping_amount) - deposit_amount
-        gross_weight_val = float(cart.gross_weight or 0)
         ws.append(["Total", f"{currency} {total_amount:.2f}"])
         ws.append(["Shipping", f"{currency} {shipping_amount:.2f}"])
         ws.append(["Deposit", f"{currency} {deposit_amount:.2f}"])
         ws.append(["Grand Total", f"{currency} {grand_total:.2f}"])
         for r in range(start_row, start_row + 4):
-            ws[f"A{r}"] .fill = black_fill
-            ws[f"A{r}"] .font = white_font
-            ws[f"B{r}"] .fill = black_fill
-            ws[f"B{r}"] .font = white_font
-            ws[f"A{r}"] .border = border
-            ws[f"B{r}"] .border = border
+            ws[f"A{r}"].fill = black_fill
+            ws[f"A{r}"].font = white_font
+            ws[f"B{r}"].fill = black_fill
+            ws[f"B{r}"].font = white_font
+            ws[f"A{r}"].border = border
+            ws[f"B{r}"].border = border
 
         ws.append([])
-        ws.append(["SUMMARY"]) 
+        ws.append(["SUMMARY"])
         ws.cell(row=ws.max_row, column=1).fill = black_fill
         ws.cell(row=ws.max_row, column=1).font = white_font
-        ws.append([f"Total Styles: {len(items_for_export)}"])
+        ws.append([f"Total Styles: {total_styles}"])
         ws.append([f"Total Quantity: {total_quantity}"])
         ws.append([f"Total Net Weight: {total_weight:.2f} g."])
         ws.append([f"Total Gross Weight: {gross_weight_val:.2f} g."])
         ws.append(["Category"])
-        for cat_name, cat_count in categories.items():
+        for cat_name, cat_count_val in categories.items():
             unit = "Prs." if "earring" in cat_name.lower() else "Pcs."
-            ws.append([f"{cat_name}: {cat_count} {unit}"])
+            ws.append([f"{cat_name}: {cat_count_val} {unit}"])
         ws.append([f"Notes: {str(cart.notes) if cart.notes else ''}"])
-        
-        # Style the worksheet
+
+        # Style the product header row
         from openpyxl.styles import Font, Alignment, PatternFill
         header_fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
         for row in ws.iter_rows(min_row=product_header_row, max_row=product_header_row):
@@ -2587,7 +2685,7 @@ def export_customer_cart_excel(request, customer_id):
                 cell.font = Font(bold=True, color="FFFFFF")
                 cell.fill = header_fill
                 cell.alignment = Alignment(horizontal="center")
-        
+
         # Auto-adjust column widths (safe for merged cells)
         from openpyxl.utils import get_column_letter
         for i, column_cells in enumerate(
@@ -2604,7 +2702,7 @@ def export_customer_cart_excel(request, customer_id):
                 except Exception:
                     pass
             ws.column_dimensions[get_column_letter(i)].width = min(max_length + 2, 50)
-        
+
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -2616,7 +2714,7 @@ def export_customer_cart_excel(request, customer_id):
             f'attachment; filename="cart_{customer.name}_{customer.id}_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
         )
         return response
-        
+
     except Exception as e:
         messages.error(request, f'Error exporting cart: {str(e)}')
         return redirect('customer_cart', customer_id=customer_id)
@@ -2638,6 +2736,16 @@ def print_customer_cart(request, customer_id):
         selected_columns = [c.strip() for c in selected_cols_param.split(',') if c.strip()] or [
             'product_code','qty','wt_g','price_thb','amount_thb','location','bi','note','usd','euro'
         ]
+
+        # Ensure Picture column appears immediately after Product Code
+        if 'picture' in selected_columns and 'product_code' in selected_columns:
+            selected_columns.remove('picture')
+            idx = selected_columns.index('product_code')
+            selected_columns.insert(idx + 1, 'picture')
+        elif 'picture' in selected_columns and 'product_code' not in selected_columns:
+            # If product_code not selected, put picture first
+            selected_columns.remove('picture')
+            selected_columns.insert(0, 'picture')
 
         # Helpers
         def to_float(val):
@@ -2697,7 +2805,7 @@ def print_customer_cart(request, customer_id):
                 'weight': to_float(p.weight or 0),
                 'kpo': p.kpo or '-',
                 'bi': _compute_bi_value(p) or '-',
-                'note': p.note or '',
+                'note': (ci.note if ci.note else (p.note or '')),
                 'pairing_set': ", ".join(pairing_values) if pairing_values else '-',
                 'thb': to_float(computed['thai_baht'] or 0),
                 'usd': to_float(computed['usd_rate'] or 0),
@@ -2930,6 +3038,22 @@ def cart_api(request, customer_id):
                     'success': True,
                     'message': 'Cart item updated successfully'
                 })
+
+            elif action == 'update_note':
+                item_id = data.get('item_id')
+                note = data.get('note', '')
+                
+                if not item_id:
+                    return JsonResponse({'success': False, 'message': 'Item ID is required'})
+                
+                cart_item = get_object_or_404(CartItem, id=item_id, cart=cart)
+                cart_item.note = note
+                cart_item.save(update_fields=['note'])
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Note updated successfully'
+                })
             
             elif action == 'remove_item':
                 item_id = data.get('item_id')
@@ -3048,6 +3172,7 @@ def cart_api(request, customer_id):
                 'currency_note': currency_note,
                 'amount': float(amount_val) if amount_val is not None else None,
                 'added_at': item.added_at.strftime('%Y-%m-%d %H:%M'),
+                'note': item.note if item.note else (product.note or ''),
             })
         
         cart_info = {
@@ -3209,7 +3334,14 @@ def customers_android_create_api(request):
         name = data.get('name', '').strip()
         if not name:
             return JsonResponse({'error': 'Name is required'}, status=400)
-        customer = Customer.objects.create(name=name)
+        customer = Customer.objects.create(
+            name=name,
+            company_name=(data.get('company_name') or '').strip() or None,
+            contact_person=(data.get('contact_person') or '').strip() or None,
+            address=(data.get('address') or '').strip() or None,
+            phone=(data.get('phone') or '').strip() or None,
+            email=(data.get('email') or '').strip() or None,
+        )
         return JsonResponse({'success': True, 'customer': {'id': customer.id, 'name': customer.name}})
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON data'}, status=400)
@@ -3383,6 +3515,7 @@ def cart_android_api(request, customer_id):
                     'image_url': image_url,
                     'quantity': item.quantity,
                     'added_at': item.added_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    'note': item.note if item.note else (item.product.note or ''),
                     'product': product_full,
                 })
 
@@ -3397,7 +3530,15 @@ def cart_android_api(request, customer_id):
                 'customer_code': getattr(cart, 'customer_code', None),
                 'gross_weight': float(getattr(cart, 'gross_weight', 0) or 0),
             }
-            return JsonResponse({'cart_items': cart_items, 'cart_info': cart_info})
+            customer_info = {
+                'name': customer.name or '',
+                'company_name': getattr(customer, 'company_name', '') or '',
+                'contact_person': getattr(customer, 'contact_person', '') or '',
+                'address': getattr(customer, 'address', '') or '',
+                'phone': getattr(customer, 'phone', '') or '',
+                'email': getattr(customer, 'email', '') or '',
+            }
+            return JsonResponse({'cart_items': cart_items, 'cart_info': cart_info, 'customer_info': customer_info})
 
         elif request.method == 'POST':
             try:

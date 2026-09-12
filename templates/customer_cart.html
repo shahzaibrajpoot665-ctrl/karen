@@ -178,7 +178,7 @@
                                                                 <th>QTY</th>
                                                                 <th>Price (Currency)</th>
                                                                 <th>Amount</th>
-                                                                <th>Location</th>
+                                                                <th>Note</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody id="cartItemsTableBody">
@@ -189,6 +189,35 @@
                                                 <div id="emptyCartMessage" class="text-center text-muted" style="display: none;">
                                                     <p><i class="fa fa-shopping-cart fa-3x"></i></p>
                                                     <p>Cart is empty. Add some products to get started!</p>
+                                                </div>
+
+                                                <!-- Add Product at bottom of Cart Items -->
+                                                <div class="mt-3 pt-3 border-top">
+                                                    <div class="row">
+                                                        <div class="col-md-6">
+                                                            <label for="productSelectBottom">Select Product</label>
+                                                            <select class="form-control select2-bottom" id="productSelectBottom" style="width: 100%;">
+                                                                <option value="">Choose a product...</option>
+                                                                {% for product in products %}
+                                                                    {% with first_image=product.images.all.0 %}
+                                                                        <option value="{{ product.id }}" data-code="{{ product.parent_code }}-{{ product.child_code }}" data-location="{{ product.location }}" data-image="{% if first_image %}{{ first_image.image.url }}{% endif %}">
+                                                                            {{ product.parent_code }}-{{ product.child_code }} ({{ product.location }})
+                                                                        </option>
+                                                                    {% endwith %}
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <label for="productQuantityBottom">Quantity</label>
+                                                            <input type="number" id="productQuantityBottom" class="form-control" value="1" min="1">
+                                                        </div>
+                                                        <div class="col-md-3">
+                                                            <label>&nbsp;</label>
+                                                            <button type="button" id="addToCartBtnBottom" class="btn btn-primary form-control">
+                                                                <i class="fa fa-plus"></i> Add to Cart
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -225,6 +254,33 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="saveQuantityBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Note Modal -->
+<div class="modal fade" id="editNoteModal" tabindex="-1" role="dialog" aria-labelledby="editNoteModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editNoteModalLabel">Edit Note</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="editNoteForm">
+                    <div class="form-group">
+                        <label for="editNoteInput">Note</label>
+                        <textarea class="form-control" id="editNoteInput" rows="3" placeholder="Enter note for this item..."></textarea>
+                        <input type="hidden" id="editNoteItemId">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveNoteBtn">Save Changes</button>
             </div>
         </div>
     </div>
@@ -399,6 +455,45 @@ $(document).ready(function() {
         escapeMarkup: function (m) { return m; }
     });
 
+    // Shared template functions for bottom Select2
+    const select2TemplateResult = function (data) {
+        if (!data.id) return data.text;
+        const el = data.element ? $(data.element) : null;
+        const imgUrl = el ? (el.data('image') || '') : '';
+        const code = el ? (el.data('code') || '') : '';
+        const location = el ? (el.data('location') || '') : '';
+        const thumb = imgUrl
+            ? `<img src="${imgUrl}" style="width:28px;height:28px;border-radius:6px;object-fit:cover;border:1px solid #e6e8ec;" />`
+            : `<div style="width:28px;height:28px;border-radius:6px;background:#f5f6f8;border:1px solid #e6e8ec;"></div>`;
+        const safeCode = code ? code : data.text;
+        const meta = location ? `<div style="font-size:12px;color:#6c757d;line-height:1.2;">${location}</div>` : '';
+        return $(
+            `<div style="display:flex;align-items:center;gap:10px;padding:2px 0;">
+                ${thumb}
+                <div style="min-width:0;">
+                    <div style="font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;">${safeCode}</div>
+                    ${meta}
+                </div>
+            </div>`
+        );
+    };
+    const select2TemplateSelection = function (data) {
+        if (!data.id) return data.text;
+        const el = data.element ? $(data.element) : null;
+        const code = el ? (el.data('code') || '') : '';
+        return code || data.text;
+    };
+
+    // Initialize bottom Select2 with same config
+    $('#productSelectBottom').select2({
+        placeholder: "Choose a product...",
+        allowClear: true,
+        width: '100%',
+        templateResult: select2TemplateResult,
+        templateSelection: select2TemplateSelection,
+        escapeMarkup: function (m) { return m; }
+    });
+
     loadCartItems();
 
     // Import Excel modal
@@ -436,10 +531,11 @@ $(document).ready(function() {
     });
 
     // Column selection for Export / Print
-    var columnsAction = null; // 'excel' or 'print'
+    var columnsAction = null; // 'print' only now
     $('#exportColumnsBtn').on('click', function(){
-        columnsAction = 'excel';
-        $('#columnsModal').modal('show');
+        // Excel export uses fixed column format, bypass column selection
+        const currencyParam = encodeURIComponent(window.selectedCurrency || 'THB');
+        window.location.href = "{% url 'export_customer_cart_excel' customer.id %}?currency=" + currencyParam;
     });
     $('#printColumnsBtn').on('click', function(){
         columnsAction = 'print';
@@ -470,10 +566,10 @@ $(document).ready(function() {
         $('#columnsModal').modal('hide');
     });
 
-    // Add to cart
-    $('#addToCartBtn').click(function() {
-        const productId = $('#productSelect').val();
-        const quantity = parseInt($('#productQuantity').val());
+    // Add to cart (reusable for both top and bottom sections)
+    function addProductToCart(selectId, quantityId) {
+        const productId = $(selectId).val();
+        const quantity = parseInt($(quantityId).val());
         
         if (!productId) {
             alert('Please select a product');
@@ -499,8 +595,8 @@ $(document).ready(function() {
             }),
             success: function(response) {
                 if (response.success) {
-                    $('#productSelect').val('').trigger('change');
-                    $('#productQuantity').val(1);
+                    $(selectId).val('').trigger('change');
+                    $(quantityId).val(1);
                     loadCartItems();
                     showMessage(response.message, 'success');
                 } else {
@@ -511,6 +607,14 @@ $(document).ready(function() {
                 showMessage('Error adding item to cart', 'error');
             }
         });
+    }
+
+    $('#addToCartBtn').click(function() {
+        addProductToCart('#productSelect', '#productQuantity');
+    });
+
+    $('#addToCartBtnBottom').click(function() {
+        addProductToCart('#productSelectBottom', '#productQuantityBottom');
     });
 
     // Load cart info and prefill details
@@ -613,6 +717,47 @@ $(document).ready(function() {
         });
     });
 
+    // Edit note
+    $(document).on('click', '.edit-note', function() {
+        const itemId = $(this).data('id');
+        const note = $(this).data('note') || '';
+        $('#editNoteItemId').val(itemId);
+        $('#editNoteInput').val(note);
+        $('#editNoteModal').modal('show');
+    });
+
+    // Save note changes
+    $('#saveNoteBtn').click(function() {
+        const itemId = $('#editNoteItemId').val();
+        const note = $('#editNoteInput').val();
+
+        $.ajax({
+            url: '{% url "cart_api" customer.id %}',
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val(),
+                'Content-Type': 'application/json',
+            },
+            data: JSON.stringify({
+                action: 'update_note',
+                item_id: itemId,
+                note: note
+            }),
+            success: function(response) {
+                if (response.success) {
+                    $('#editNoteModal').modal('hide');
+                    loadCartItems();
+                    showMessage(response.message, 'success');
+                } else {
+                    showMessage(response.message, 'error');
+                }
+            },
+            error: function() {
+                showMessage('Error saving note', 'error');
+            }
+        });
+    });
+
     // Remove item
     $(document).on('click', '.remove-item', function() {
         const itemId = $(this).data('id');
@@ -706,6 +851,7 @@ function loadCartItems() {
                     const amountDisplay = (item.currency_note && item.amount !== null)
                         ? `${item.currency_note} ${Number(item.amount).toFixed(2)}`
                         : '-';
+                    const noteValue = item.note || '';
                     const row = `
                         <tr>
                             <td>
@@ -722,7 +868,12 @@ function loadCartItems() {
                             </td>
                             <td>${priceDisplay}</td>
                             <td>${amountDisplay}</td>
-                            <td>${item.product_location}</td>
+                            <td>
+                                <span class="cart-item-note-display" data-id="${item.id}">${noteValue || '--'}</span>
+                                <button class="btn btn-sm btn-warning edit-note ml-1" data-id="${item.id}" data-note="${(noteValue || '').replace(/"/g, '"')}" title="Edit Note">
+                                    <i class="fa fa-edit"></i>
+                                </button>
+                            </td>
                         </tr>
                     `;
                     tbody.append(row);
