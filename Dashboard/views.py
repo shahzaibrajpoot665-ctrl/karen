@@ -72,6 +72,10 @@ def _download_and_link_external_images(product, image_url_data):
 
     For non-HTTP URLs (plain filenames), falls back to existing filename-based
     matching against already-uploaded Image objects.
+
+    Duplicate prevention: checks existing images by filename suffix (not exact
+    path) so that Django's auto-rename behaviour does not cause the same image
+    to be downloaded and linked multiple times on repeated imports.
     """
     import logging
     from django.core.files.base import ContentFile
@@ -80,22 +84,36 @@ def _download_and_link_external_images(product, image_url_data):
     if not image_url_data:
         return
 
+    # Deduplicate input URLs while preserving order
+    seen_urls = set()
+    unique_urls = []
     for url in image_url_data:
         url_str = str(url).strip()
-        if not url_str:
-            continue
+        if url_str and url_str not in seen_urls:
+            seen_urls.add(url_str)
+            unique_urls.append(url_str)
 
-        filename = url_str.rstrip('/').split('/')[-1]
+    for url_str in unique_urls:
+        # Strip query parameters and fragments before extracting the filename
+        clean_url = url_str.split('?')[0].split('#')[0]
+        filename = clean_url.rstrip('/').split('/')[-1]
         if not filename:
             continue
 
         # If it's an HTTP(S) URL, try to download the external image
         if url_str.lower().startswith(('http://', 'https://')):
-            existing_path = f'product_images/{filename}'
-            existing = Image.objects.filter(image=existing_path).first()
+            # Check if the product already has an image with this filename
+            # (use endswith to handle Django's auto-rename of stored files)
+            existing_linked = product.images.filter(image__endswith=f'/{filename}').first()
+            if existing_linked:
+                # Already linked to this product — skip entirely
+                continue
+
+            # Check if any Image object with this filename exists in the DB
+            existing = Image.objects.filter(image__endswith=f'/{filename}').first()
             if existing:
-                if not product.images.filter(id=existing.id).exists():
-                    product.images.add(existing)
+                # Link the existing Image without downloading
+                product.images.add(existing)
                 continue
 
             # Download the external image
@@ -136,8 +154,7 @@ def _download_and_link_external_images(product, image_url_data):
                 continue
         else:
             # Non-HTTP URL: treat as filename, match existing Image objects
-            existing_path = f'product_images/{filename}'
-            existing = Image.objects.filter(image=existing_path).first()
+            existing = Image.objects.filter(image__endswith=f'/{filename}').first()
             if existing:
                 if not product.images.filter(id=existing.id).exists():
                     product.images.add(existing)
@@ -2449,61 +2466,6 @@ def export_customer_cart_excel(request, customer_id):
         ws = wb.active
         ws.title = f'Cart - {customer.name}'
 
-        from openpyxl.styles import Font, Alignment, Border, Side
-        thin = Side(style='thin', color='000000')
-        border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-        # --- TOP SECTION: Customer Info + Document Info (original layout) ---
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
-        ci_title = ws.cell(row=1, column=1, value='CUSTOMER INFO')
-        ci_title.font = Font(bold=True)
-        ws.cell(row=2, column=1, value='Name:')
-        ws.cell(row=2, column=2, value=customer.name or '')
-        ws.merge_cells(start_row=2, start_column=2, end_row=2, end_column=4)
-        ws.cell(row=3, column=1, value='Company Name:')
-        ws.cell(row=3, column=2, value=(getattr(customer, 'company_name', '') or ''))
-        ws.merge_cells(start_row=3, start_column=2, end_row=3, end_column=4)
-        ws.cell(row=4, column=1, value='Address:')
-        address_display = (cart.address_override or getattr(customer, 'address', '') or '')
-        ws.cell(row=4, column=2, value=address_display)
-        ws.merge_cells(start_row=4, start_column=2, end_row=4, end_column=4)
-        ws.cell(row=5, column=1, value='Phone:')
-        ws.cell(row=5, column=2, value=(getattr(customer, 'phone', '') or ''))
-        ws.merge_cells(start_row=5, start_column=2, end_row=5, end_column=4)
-        ws.cell(row=6, column=1, value='Email:')
-        ws.cell(row=6, column=2, value=(getattr(customer, 'email', '') or ''))
-        ws.merge_cells(start_row=6, start_column=2, end_row=6, end_column=4)
-        if cart.notes:
-            ws.cell(row=7, column=1, value='Notes:')
-            ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)
-            ws.cell(row=7, column=2, value=str(cart.notes))
-
-        ws.merge_cells(start_row=1, start_column=5, end_row=1, end_column=8)
-        di_title = ws.cell(row=1, column=5, value='DOCUMENT INFO')
-        di_title.font = Font(bold=True)
-        ws.cell(row=2, column=5, value='Date:')
-        ws.cell(row=2, column=6, value=timezone.now().strftime('%Y-%m-%d %H:%M'))
-        ws.merge_cells(start_row=2, start_column=6, end_row=2, end_column=8)
-        salesperson_name = (getattr(cart, 'sales_person', None) or getattr(request.user, 'get_full_name', lambda: '')() or getattr(request.user, 'username', ''))
-        ws.cell(row=3, column=5, value='Salesperson:')
-        ws.cell(row=3, column=6, value=salesperson_name)
-        ws.merge_cells(start_row=3, start_column=6, end_row=3, end_column=8)
-        ws.cell(row=4, column=5, value='Doc. Ref.:')
-        ws.cell(row=4, column=6, value=str(getattr(cart, 'doc_ref', None) or getattr(cart, 'id', '')))
-        ws.merge_cells(start_row=4, start_column=6, end_row=4, end_column=8)
-        ws.cell(row=5, column=5, value='Customer Code:')
-        ws.cell(row=5, column=6, value=str(getattr(cart, 'customer_code', None) or getattr(customer, 'id', '')))
-        ws.merge_cells(start_row=5, start_column=6, end_row=5, end_column=8)
-
-        for r in range(1, 8):
-            for c in range(1, 5):
-                ws.cell(row=r, column=c).border = border
-        for r in range(1, 8):
-            for c in range(5, 9):
-                ws.cell(row=r, column=c).border = border
-
-        ws.append([])
-
         currency = (request.GET.get('currency') or 'THB').upper()
         if currency not in ('THB', 'USD', 'EUR'):
             currency = 'THB'
@@ -2589,11 +2551,13 @@ def export_customer_cart_excel(request, customer_id):
         contact_person = getattr(customer, 'contact_person', '') or customer.name or ''
         phone = getattr(customer, 'phone', '') or ''
         email = getattr(customer, 'email', '') or ''
+        address_display = (cart.address_override or getattr(customer, 'address', '') or '')
+        salesperson_name = (getattr(cart, 'sales_person', None) or getattr(request.user, 'get_full_name', lambda: '')() or getattr(request.user, 'username', ''))
         doc_ref = str(getattr(cart, 'doc_ref', None) or getattr(cart, 'id', ''))
         doc_note = cart.notes or ''
         invoice_date = timezone.now().strftime('%Y-%m-%d %H:%M')
 
-        product_header_row = ws.max_row + 1
+        product_header_row = 1
         ws.append(headers)
 
         for it in items_for_export:
@@ -2640,42 +2604,6 @@ def export_customer_cart_excel(request, customer_id):
                 salesperson_name,
             ]
             ws.append(row)
-
-        # --- BOTTOM SECTION: Totals + Summary (original layout) ---
-        ws.append([])
-        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-        label_font = Font(bold=True)
-        black_fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
-        white_font = Font(color="FFFFFF", bold=True)
-        thin = Side(style='thin', color='000000')
-        border = Border(top=thin, left=thin, right=thin, bottom=thin)
-
-        start_row = ws.max_row + 1
-        ws.append(["Total", f"{currency} {total_amount:.2f}"])
-        ws.append(["Shipping", f"{currency} {shipping_amount:.2f}"])
-        ws.append(["Deposit", f"{currency} {deposit_amount:.2f}"])
-        ws.append(["Grand Total", f"{currency} {grand_total:.2f}"])
-        for r in range(start_row, start_row + 4):
-            ws[f"A{r}"].fill = black_fill
-            ws[f"A{r}"].font = white_font
-            ws[f"B{r}"].fill = black_fill
-            ws[f"B{r}"].font = white_font
-            ws[f"A{r}"].border = border
-            ws[f"B{r}"].border = border
-
-        ws.append([])
-        ws.append(["SUMMARY"])
-        ws.cell(row=ws.max_row, column=1).fill = black_fill
-        ws.cell(row=ws.max_row, column=1).font = white_font
-        ws.append([f"Total Styles: {total_styles}"])
-        ws.append([f"Total Quantity: {total_quantity}"])
-        ws.append([f"Total Net Weight: {total_weight:.2f} g."])
-        ws.append([f"Total Gross Weight: {gross_weight_val:.2f} g."])
-        ws.append(["Category"])
-        for cat_name, cat_count_val in categories.items():
-            unit = "Prs." if "earring" in cat_name.lower() else "Pcs."
-            ws.append([f"{cat_name}: {cat_count_val} {unit}"])
-        ws.append([f"Notes: {str(cart.notes) if cart.notes else ''}"])
 
         # Style the product header row
         from openpyxl.styles import Font, Alignment, PatternFill
@@ -3031,6 +2959,12 @@ def cart_api(request, customer_id):
                     return JsonResponse({'success': False, 'message': 'Item ID is required'})
                 
                 cart_item = get_object_or_404(CartItem, id=item_id, cart=cart)
+                if quantity <= 0:
+                    cart_item.delete()
+                    return JsonResponse({
+                        'success': True,
+                        'message': 'Item removed from cart'
+                    })
                 cart_item.quantity = quantity
                 cart_item.save()
                 
@@ -3161,11 +3095,27 @@ def cart_api(request, customer_id):
                 except Exception:
                     amount_val = None
 
+            try:
+                item_image_url = request.build_absolute_uri(product.images.first().image.url) if product.images.exists() else ''
+            except Exception:
+                item_image_url = ''
+            pairing_values = ''
+            try:
+                pairing_values = ', '.join([ps.pair_value for ps in product.pairing_set.all()])
+            except Exception:
+                pairing_values = ''
+
             cart_items.append({
                 'id': item.id,
                 'product_id': product.id,
                 'product_code': f"{product.child_code}",
                 'product_location': product.location,
+                'description': product.description or '',
+                'weight': float(product.weight or 0),
+                'kpo': product.kpo or '',
+                'pairing_set': pairing_values,
+                'bi': _compute_bi_value(product) or '',
+                'image_url': item_image_url,
                 'quantity': item.quantity,
                 'price': float(price_val) if price_val is not None else None,
                 'price_raw': (str(price_raw).strip() if price_raw is not None else None),
@@ -3383,7 +3333,7 @@ def add_to_cart_bulk_android(request):
         mode = data.get('mode', 'add')  # "add" (default) or "set"
         if not product_code:
             return JsonResponse({'error': 'Product code is required'}, status=400)
-        if quantity <= 0:
+        if quantity <= 0 and mode != 'set':
             return JsonResponse({'error': 'Quantity must be greater than 0'}, status=400)
 
         product = Product.objects.filter(Q(child_code=product_code) | Q(parent_code=product_code)).first()
@@ -3403,6 +3353,15 @@ def add_to_cart_bulk_android(request):
         else:
             customer_ids = data.get('customer_ids', [])
             customers = Customer.objects.filter(id__in=customer_ids)
+
+        # quantity == 0 in set mode: remove the product from all matching carts
+        if quantity <= 0 and mode == 'set':
+            removed_count = 0
+            for customer in customers:
+                cart, _ = Cart.objects.get_or_create(customer=customer, is_active=True)
+                deleted, _ = CartItem.objects.filter(cart=cart, product=product).delete()
+                removed_count += 1 if deleted else 0
+            return JsonResponse({'success': True, 'affected_customers': removed_count, 'removed': True})
 
         added_count = 0
         for customer in customers:
@@ -3555,12 +3514,13 @@ def cart_android_api(request, customer_id):
                     quantity = int(upd.get('quantity', 1))
                     if not item_id:
                         continue
-                    if quantity <= 0:
-                        quantity = 1
                     try:
                         cart_item = CartItem.objects.get(id=item_id, cart=cart)
-                        cart_item.quantity = quantity
-                        cart_item.save()
+                        if quantity <= 0:
+                            cart_item.delete()
+                        else:
+                            cart_item.quantity = quantity
+                            cart_item.save()
                         updated_count += 1
                     except CartItem.DoesNotExist:
                         continue
@@ -3585,10 +3545,11 @@ def cart_android_api(request, customer_id):
                 quantity = int(data.get('quantity', 1))
                 if not item_id:
                     return JsonResponse({'success': False, 'message': 'Item ID is required'})
-                if quantity <= 0:
-                    quantity = 1
                 try:
                     cart_item = CartItem.objects.get(id=item_id, cart=cart)
+                    if quantity <= 0:
+                        cart_item.delete()
+                        return JsonResponse({'success': True, 'message': 'Item removed'})
                     cart_item.quantity = quantity
                     cart_item.save()
                     return JsonResponse({'success': True, 'message': 'Cart item updated successfully'})
