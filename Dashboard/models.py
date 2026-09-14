@@ -39,6 +39,8 @@ class ImageName(models.Model):
 
 class Image(models.Model):
     image = models.ImageField(upload_to='product_images/')
+    source_url = models.TextField(null=True, blank=True)
+    source_url_hash = models.CharField(max_length=64, null=True, blank=True, unique=True)
 
 class Tag(models.Model):
     name = models.CharField(max_length=255)

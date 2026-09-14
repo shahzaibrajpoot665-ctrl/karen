@@ -1,5 +1,11 @@
 from django.shortcuts import render,HttpResponse, redirect, get_object_or_404
-from django.db import models
+from django.db import models, transaction, IntegrityError
+import hashlib
+import ipaddress
+import socket
+from urllib.parse import urlsplit, urlunsplit, urljoin, unquote
+from django.core.files.base import ContentFile
+from PIL import Image as PillowImage
 from .models import *
 import uuid
 import os
@@ -67,97 +73,155 @@ def _parse_price_to_decimal(val):
     except Exception:
         return None
 
-def _download_and_link_external_images(product, image_url_data):
-    """Download external HTTP/HTTPS image URLs and link them to the product.
+def _normalize_import_image_url(value):
+    parts = urlsplit(value.strip())
+    if parts.scheme.lower() not in ('http', 'https') or not parts.hostname or parts.username or parts.password:
+        raise ValueError('Image URL must be an HTTP(S) URL without credentials')
+    host = parts.hostname.lower()
+    host = f'[{host}]' if ':' in host else host
+    port = parts.port
+    if port and (parts.scheme.lower(), port) not in (('http', 80), ('https', 443)):
+        host += f':{port}'
+    return urlunsplit((parts.scheme.lower(), host, parts.path or '/', parts.query, ''))
+
+
+def _validate_image_download_url(url):
+    parts = urlsplit(_normalize_import_image_url(url))
+    addresses = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == 'https' else 80), type=socket.SOCK_STREAM)
+    if not addresses or any(not ipaddress.ip_address(addr[4][0]).is_global for addr in addresses):
+        raise ValueError('External image URL must resolve to a public address')
+
+
+class _ImageRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_image_download_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _read_import_image(url):
+    _validate_image_download_url(url)
+    request = urllib.request.Request(url, headers={'User-Agent': 'Karen-Product-Import'})
+    opener = urllib.request.build_opener(_ImageRedirectHandler())
+    limit = 10 * 1024 * 1024
+    with opener.open(request, timeout=30) as response:
+        image_data = response.read(limit + 1)
+    if not image_data or len(image_data) > limit:
+        raise ValueError('Image is empty or exceeds the 10 MB limit')
+    with PillowImage.open(io.BytesIO(image_data)) as image:
+        if image.width * image.height > 25000000:
+            raise ValueError('Image dimensions exceed the import limit')
+        image_format = image.format
+        image.verify()
+    extensions = {'JPEG': '.jpg', 'PNG': '.png', 'WEBP': '.webp', 'GIF': '.gif'}
+    if image_format not in extensions:
+        raise ValueError('Unsupported image format')
+    return image_data, extensions[image_format]
+
+
+def _local_import_image(value, media_origin):
+    parts = urlsplit(value)
+    if parts.query:
+        return None
+    media_url = urlsplit(urljoin(media_origin or '', settings.MEDIA_URL))
+    if parts.scheme or parts.netloc:
+        if not media_url.netloc or parts.netloc.lower() != media_url.netloc.lower():
+            return None
+    media_path = media_url.path
+    if not media_path.endswith('/'):
+        media_path += '/'
+    path = unquote(parts.path)
+    if path.startswith(media_path):
+        name = path[len(media_path):]
+    elif not parts.scheme and not parts.netloc and '/' not in path:
+        name = f'product_images/{path}'
+    else:
+        return None
+    image = Image.objects.filter(image=name).order_by('id').first()
+    if image and image.image.storage.exists(image.image.name):
+        return image
+    return None
+
+
+def _download_and_link_external_images(product, image_url_data, media_origin=None):
+    """Resolve the complete imported image set before replacing product links.
 
     For non-HTTP URLs (plain filenames), falls back to existing filename-based
     matching against already-uploaded Image objects.
 
-    Duplicate prevention: checks existing images by filename suffix (not exact
-    path) so that Django's auto-rename behaviour does not cause the same image
-    to be downloaded and linked multiple times on repeated imports.
+    Duplicate prevention uses the full source URL identity independently of
+    storage filenames. A failed replacement leaves existing links intact.
     """
-    import logging
-    from django.core.files.base import ContentFile
-    logger = logging.getLogger(__name__)
-
-    if not image_url_data:
+    if image_url_data is None:
         return
 
     # Deduplicate input URLs while preserving order
     seen_urls = set()
-    unique_urls = []
-    for url in image_url_data:
-        url_str = str(url).strip()
-        if url_str and url_str not in seen_urls:
-            seen_urls.add(url_str)
-            unique_urls.append(url_str)
-
-    for url_str in unique_urls:
-        # Strip query parameters and fragments before extracting the filename
-        clean_url = url_str.split('?')[0].split('#')[0]
-        filename = clean_url.rstrip('/').split('/')[-1]
-        if not filename:
+    resolved = []
+    for index, value in enumerate(image_url_data, start=1):
+        url_str = str(value or '').strip()
+        if not url_str:
             continue
-
-        # If it's an HTTP(S) URL, try to download the external image
-        if url_str.lower().startswith(('http://', 'https://')):
-            # Check if the product already has an image with this filename
-            # (use endswith to handle Django's auto-rename of stored files)
-            existing_linked = product.images.filter(image__endswith=f'/{filename}').first()
-            if existing_linked:
-                # Already linked to this product — skip entirely
+        try:
+            # Strip query parameters and fragments only from storage filenames
+            parts = urlsplit(url_str)
+            filename = os.path.basename(unquote(parts.path))
+            local = _local_import_image(url_str, media_origin)
+            if local:
+                resolved.append(local)
                 continue
 
-            # Check if any Image object with this filename exists in the DB
-            existing = Image.objects.filter(image__endswith=f'/{filename}').first()
-            if existing:
-                # Link the existing Image without downloading
-                product.images.add(existing)
-                continue
+            # If it's an HTTP(S) URL, resolve by source identity
+            if parts.scheme.lower() in ('http', 'https'):
+                # Check whether this exact source URL was already resolved
+                # Storage renaming must not change the identity
+                source_url = _normalize_import_image_url(url_str)
+                source_hash = hashlib.sha256(source_url.encode('utf-8')).hexdigest()
+                if source_hash in seen_urls:
+                    # Already resolved in this replacement set
+                    continue
+                seen_urls.add(source_hash)
 
-            # Download the external image
-            try:
-                req = urllib.request.Request(
-                    url_str,
-                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-                )
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    image_data = response.read()
-                    content_type = response.headers.get('Content-Type', '')
+                # Check if an Image object with this source exists in the DB
+                existing = Image.objects.filter(source_url_hash=source_hash).first()
+                if existing and existing.image and existing.image.storage.exists(existing.image.name):
+                    # Reuse the existing Image without downloading
+                    resolved.append(existing)
+                    continue
 
-                    # Determine extension from content type or URL
-                    lower_url = url_str.lower()
-                    if 'png' in content_type or lower_url.endswith('.png'):
-                        ext = '.png'
-                    elif 'webp' in content_type or lower_url.endswith('.webp'):
-                        ext = '.webp'
-                    elif 'gif' in content_type or lower_url.endswith('.gif'):
-                        ext = '.gif'
-                    elif 'jpeg' in content_type or 'jpg' in content_type or lower_url.endswith('.jpg') or lower_url.endswith('.jpeg'):
-                        ext = '.jpg'
-                    else:
-                        ext = '.jpg'
+                # Download the external image
+                image_data, ext = _read_import_image(source_url)
+                # Determine extension from verified image content
+                stem = re.sub(r'[^A-Za-z0-9_-]', '_', os.path.splitext(filename)[0])[:40] or 'image'
+                # Ensure filename has an extension
+                filename = f'{stem}_{source_hash[:16]}{ext}'
+                if existing:
+                    existing.image.save(filename, ContentFile(image_data), save=True)
+                    resolved.append(existing)
+                else:
+                    image = Image(source_url=source_url, source_url_hash=source_hash)
+                    try:
+                        with transaction.atomic():
+                            image.image.save(filename, ContentFile(image_data), save=False)
+                            image.save(force_insert=True)
+                    except IntegrityError:
+                        if image.image.name:
+                            image.image.storage.delete(image.image.name)
+                        image = Image.objects.get(source_url_hash=source_hash)
+                    resolved.append(image)
+            else:
+                # Non-HTTP URL: treat as filename, match existing Image objects
+                raise ValueError('No matching uploaded image')
+        except Exception as exc:
+            raise ValueError(f'Image {index} could not be imported; previous product images were kept ({type(exc).__name__}).') from None
 
-                    # Ensure filename has an extension
-                    if '.' not in filename:
-                        filename = filename + ext
-
-                    img = Image.objects.create(image=ContentFile(image_data, name=filename))
-                    product.images.add(img)
-                    logger.info(f"Downloaded external image {url_str} -> {img.image.name}")
-            except urllib.error.URLError as e:
-                logger.warning(f"Failed to download external image {url_str}: {e}")
-                continue
-            except Exception as e:
-                logger.warning(f"Error processing external image {url_str}: {e}")
-                continue
-        else:
-            # Non-HTTP URL: treat as filename, match existing Image objects
-            existing = Image.objects.filter(image__endswith=f'/{filename}').first()
-            if existing:
-                if not product.images.filter(id=existing.id).exists():
-                    product.images.add(existing)
+    unique_images = {image.pk: image for image in resolved}
+    with transaction.atomic():
+        locked_product = Product.objects.select_for_update().get(pk=product.pk)
+        locked_product.images.set(unique_images.values())
+        links = ProductImageLink.objects.filter(parent_code=locked_product.parent_code, child_code=locked_product.child_code)
+        links.exclude(image_id__in=unique_images).delete()
+        for image in unique_images.values():
+            ProductImageLink.objects.get_or_create(image=image, parent_code=locked_product.parent_code, child_code=locked_product.child_code)
 
 EXPECTED_IMPORT_COLUMNS = [
     'Parent Code', 'Child Code', 'Location', 'QTY', 'kpo', 'pairing_set',
@@ -305,7 +369,7 @@ def _download_google_sheet_to_xlsx(spreadsheet_id, sheet_name, timeout=60):
     wb.close()
     return out_path
 
-def _process_product_import_job(import_id, file_path, max_import_rows):
+def _process_product_import_job(import_id, file_path, max_import_rows, media_origin=None):
     try:
         wb = load_workbook(file_path, data_only=True)
         sheet = wb.active
@@ -420,8 +484,8 @@ def _process_product_import_job(import_id, file_path, max_import_rows):
                     images_names_data = str(fields[idx_images_names]).split(',')
 
                 image_url_data = None
-                if idx_image_url is not None and len(fields) > idx_image_url and fields[idx_image_url]:
-                    image_url_data = str(fields[idx_image_url]).split(',')
+                if idx_image_url is not None and len(fields) > idx_image_url:
+                    image_url_data = str(fields[idx_image_url] or '').split(',')
 
                 child_code_str = str(child_code).strip()
                 product = Product.objects.filter(child_code=child_code_str).first()
@@ -483,11 +547,12 @@ def _process_product_import_job(import_id, file_path, max_import_rows):
                         images_names.append(image_name_obj)
                     product.images_names.set(images_names)
                     image_files = Image.objects.filter(image__in=[f'product_images/{img_name.name}' for img_name in images_names])
-                    product.images.set(image_files)
+                    if image_url_data is None:
+                        product.images.set(image_files)
                     product.save()
 
-                if image_url_data:
-                    _download_and_link_external_images(product, image_url_data)
+                if image_url_data is not None:
+                    _download_and_link_external_images(product, image_url_data, media_origin)
                     product.save()
 
                 if not product.qrcode_image:
@@ -644,7 +709,7 @@ def product_import_start(request):
         'message': ''
     })
 
-    t = threading.Thread(target=_process_product_import_job, args=(import_id, tmp_path, max_import_rows), daemon=True)
+    t = threading.Thread(target=_process_product_import_job, args=(import_id, tmp_path, max_import_rows, request.build_absolute_uri('/')), daemon=True)
     t.start()
 
     _update_product_import_state(import_id, status='running')
@@ -827,7 +892,7 @@ def google_sheet_import_start(request):
         'message': ''
     })
 
-    t = threading.Thread(target=_process_product_import_job, args=(import_id, tmp_path, max_import_rows), daemon=True)
+    t = threading.Thread(target=_process_product_import_job, args=(import_id, tmp_path, max_import_rows, request.build_absolute_uri('/')), daemon=True)
     t.start()
 
     _update_product_import_state(import_id, status='running')
@@ -1135,8 +1200,8 @@ def form_view(request):
                     if idx_images_names is not None and len(fields) > idx_images_names and fields[idx_images_names]:
                         images_names_data = str(fields[idx_images_names]).split(',')
                     image_url_data = None
-                    if idx_image_url is not None and len(fields) > idx_image_url and fields[idx_image_url]:
-                        image_url_data = str(fields[idx_image_url]).split(',')
+                    if idx_image_url is not None and len(fields) > idx_image_url:
+                        image_url_data = str(fields[idx_image_url] or '').split(',')
                     product =  Product.objects.filter(child_code=child_code).first()
                     if product:
                         product.location = location
@@ -1176,11 +1241,12 @@ def form_view(request):
                             images_names.append(image_name_obj)
                         product.images_names.set(images_names)
                         image_files = Image.objects.filter(image__in=[f'product_images/{img_name.name}' for img_name in images_names])
-                        product.images.set(image_files)
+                        if image_url_data is None:
+                            product.images.set(image_files)
                         product.save()
 
-                    if image_url_data:
-                        _download_and_link_external_images(product, image_url_data)
+                    if image_url_data is not None:
+                        _download_and_link_external_images(product, image_url_data, request.build_absolute_uri('/'))
                         product.save()
 
                     if not product.qrcode_image:
