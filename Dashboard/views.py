@@ -41,6 +41,15 @@ from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
+from .notifications import (build_notifications, build_reminder_text,
+                            follow_up_items, line_configured, order_items,
+                            send_line_message, _OPEN_PO_STATUSES)
+from .permissions import (admin_required, deny, is_admin, perm_required,
+                          user_can, ALL_PERMISSION_KEYS, PERMISSION_GROUPS,
+                          DEFAULT_STAFF_PERMISSIONS, TAB_PERMISSION_KEYS)
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 
 def _product_import_cache_key(import_id):
     return f'product_import:{import_id}'
@@ -641,6 +650,7 @@ def _process_product_import_job(import_id, file_path, max_import_rows, media_ori
             pass
 
 @login_required
+@perm_required('products_import')
 def product_import_start(request):
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
@@ -716,6 +726,7 @@ def product_import_start(request):
     return JsonResponse({'success': True, 'import_id': import_id, 'total_rows': total_rows, 'max_rows': max_import_rows})
 
 @login_required
+@perm_required('products_import')
 def product_import_status(request):
     import_id = request.GET.get('import_id')
     if not import_id:
@@ -731,6 +742,7 @@ def product_import_status(request):
 # ---- Google Sheets import views ----
 
 @login_required
+@perm_required('products_import')
 def google_sheet_status(request):
     """Return the currently connected Google Sheet config + live tab list."""
     cfg = GoogleSheetConfig.get_singleton()
@@ -760,6 +772,7 @@ def google_sheet_status(request):
 
 
 @login_required
+@perm_required('products_import')
 def google_sheet_connect(request):
     """Save a Google Sheet URL/ID and validate it is reachable. Returns the tab list."""
     if request.method != 'POST':
@@ -798,6 +811,7 @@ def google_sheet_connect(request):
 
 
 @login_required
+@perm_required('products_import')
 def google_sheet_select_tab(request):
     """Change the selected sheet tab (gid) for the connected Google Sheet."""
     if request.method != 'POST':
@@ -826,6 +840,7 @@ def google_sheet_select_tab(request):
 
 
 @login_required
+@perm_required('products_import')
 def google_sheet_import_start(request):
     """Download the connected Google Sheet tab and run the same import job as file upload."""
     if request.method != 'POST':
@@ -901,6 +916,7 @@ def google_sheet_import_start(request):
 
 @csrf_exempt
 @login_required()
+@perm_required('products_images')
 def upload_bulk_images(request):
     if request.method == 'POST':
         uploaded_images = request.FILES.getlist("file")
@@ -974,6 +990,7 @@ def upload_bulk_images(request):
 
 @csrf_exempt
 @login_required()
+@perm_required('products_images')
 def image_management(request):
     """View for managing images and linking them to products"""
     if request.method == 'GET':
@@ -1096,11 +1113,26 @@ def image_management(request):
     return JsonResponse({'success': False, 'message': 'Invalid request method'})
 
 
+_FORM_POST_PERMS = {
+    'bulk-images': 'products_images',
+    'bulk-create': 'products_import',
+    'product-grouping': 'products_edit',
+    'create': 'products_edit',
+    'update': 'products_edit',
+    'delete': 'products_delete',
+    'delete_all_products': 'products_delete',
+}
+
+
 @login_required()
+@perm_required('products')
 def form_view(request):
     if request.method == 'POST':
         data = request.POST
         type = data.get('type')
+        required_perm = _FORM_POST_PERMS.get(type, 'products_edit')
+        if not user_can(request.user, required_perm):
+            return deny(request)
         if type == 'bulk-images':
             uploaded_images = request.FILES.getlist("images") 
             if not uploaded_images:
@@ -1417,6 +1449,8 @@ def form_view(request):
             messages.success(request,"Successfully deleted all products!")
             return redirect('form')
     elif request.method == 'DELETE':
+        if not user_can(request.user, 'products_delete'):
+            return deny(request)
         data = json.loads(request.body)
         if data.get('type') == 'bulk-delete':
             product_ids = data.get('ids', [])
@@ -1459,6 +1493,7 @@ def form_view(request):
         })
 
 @login_required
+@perm_required('products')
 def product_api(request):
     # Handle sorting
     sort_by = request.GET.get('sort_by', 'id')
@@ -1519,6 +1554,7 @@ def product_api(request):
 
 
 @login_required()     
+@perm_required('products')
 def product_detail(request, id):
     prod = Product.objects.get(id=id)
     prices = _get_computed_prices(prod)
@@ -1526,7 +1562,11 @@ def product_detail(request, id):
 
 # @cache_page(60 * 60 * 24)  # Cache for one day (24 hours)
 @csrf_exempt
+@login_required()
 def single_product(request):
+    # SKU lookup is shared by the Products tab and the receiving workflow.
+    if not (user_can(request.user, 'products') or user_can(request.user, 'orders_receive')):
+        return deny(request)
     if request.method == 'GET':
         # Support multiple search parameters
         child_code = request.GET.get('child_code')
@@ -1622,7 +1662,7 @@ def single_product(request):
     
 def login_view(request):
     if request.user.is_authenticated:
-            return redirect("form")
+            return redirect("dashboard")
     if request.method == 'POST':
         data = request.POST
         username = data['username']
@@ -1631,7 +1671,7 @@ def login_view(request):
         if user is not None:
             auth_login(request, user)
             messages.success(request,"Successfully Login!")
-            return redirect("form")
+            return redirect("dashboard")
         else:
             messages.warning(request,"Incorrect email or password!")        
     return render(request, 'login.html')
@@ -1646,7 +1686,7 @@ def change_password(request):
             user.set_password(p1) 
             user.save()   
             messages.success(request,"Successfully Change Password!")
-            return redirect('form')
+            return redirect('dashboard')
         else:
             messages.error(request,"Password does not match!")
             return redirect('change_password')
@@ -1657,10 +1697,10 @@ def user_logout(request):
     try:
         logout(request)
         messages.success(request, 'Logout Successfully!')
-        return redirect('form')
+        return redirect('login')
     except:
             messages.warning(request, 'Request is not responed please check your internet connection and try again!')
-            return redirect('form')
+            return redirect('login')
 
 def custom_paginate_queryset(queryset, page, page_size):
     total_items = len(queryset)
@@ -1681,6 +1721,8 @@ def custom_paginate_queryset(queryset, page, page_size):
     }
 
 
+@login_required()
+@perm_required('products_export')
 def export_to_excel(request):
     wb = Workbook()
     ws = wb.active
@@ -1720,6 +1762,8 @@ def export_to_excel(request):
     return response
 
 
+@login_required()
+@perm_required('products_export')
 def export_selected_to_excel(request):
     if request.method == 'POST':
         selected_ids = request.POST.getlist('ids[]')  
@@ -1767,6 +1811,7 @@ def export_selected_to_excel(request):
 
 
 @login_required
+@perm_required('products_pairing')
 def pairing_set_api(request):
     pair_objs = PairingSet.objects.all().order_by('-id')
     pair_objs = ProductFilter(request.GET, queryset=pair_objs)
@@ -1781,6 +1826,8 @@ def pairing_set_api(request):
 
 
 @csrf_exempt
+@login_required()
+@perm_required('products_images')
 def image_api(request):
     """API endpoint for image management operations"""
     if request.method == 'GET':
@@ -2046,6 +2093,7 @@ def image_api(request):
 
 @csrf_exempt
 @login_required
+@perm_required('products')
 def product_images_api(request, product_id):
     """API endpoint to get all images for a specific product"""
     if request.method == 'GET':
@@ -2085,6 +2133,7 @@ def product_images_api(request, product_id):
     return JsonResponse({'success': False, 'message': 'Invalid request method'})
 
 @login_required
+@perm_required('products_pairing')
 def pairing_set_view(request):
     if request.method == 'POST':
         data = request.POST
@@ -2210,6 +2259,7 @@ def pairing_set_view(request):
     return render(request, 'pairing_set.html')
 
 @login_required
+@perm_required('products_pairing')
 def pairing_set_print_view(request):
     """Print view for pairing sets"""
     pairing_sets = PairingSet.objects.all().order_by('pair_value')
@@ -2222,6 +2272,7 @@ def pairing_set_print_view(request):
 
 @csrf_exempt
 @login_required()
+@perm_required('products')
 def get_unlinked_images(request):
     """API endpoint to get images that are not linked to any products"""
     if request.method == 'GET':
@@ -2248,7 +2299,11 @@ def get_unlinked_images(request):
 @csrf_exempt
 @login_required()
 def search_products_for_linking(request):
-    """API endpoint to search products for image linking"""
+    """API endpoint to search products for image linking (used by the
+    Image Management page, so ``products_images`` counts too)."""
+    if not (user_can(request.user, 'products')
+            or user_can(request.user, 'products_images')):
+        return deny(request)
     if request.method == 'GET':
         query = request.GET.get('q', '').strip()
         
@@ -2402,12 +2457,15 @@ def auto_link_images_to_products():
 
 # Cart Management Views
 @login_required
+@perm_required('cart')
 def cart_management_view(request):
     """Main cart management view with customer list"""
     customers = Customer.objects.all().order_by('name')
     
     # Handle customer creation
     if request.method == 'POST' and request.POST.get('action') == 'create_customer':
+        if not user_can(request.user, 'customers_manage'):
+            return deny(request)
         customer_name = request.POST.get('customer_name', '').strip()
         if customer_name:
             customer = Customer.objects.create(name=customer_name)
@@ -2423,8 +2481,11 @@ def cart_management_view(request):
 
 @csrf_exempt
 @login_required
+@perm_required('cart')
 def customer_api(request):
     """API for customer CRUD operations"""
+    if request.method != 'GET' and not user_can(request.user, 'customers_manage'):
+        return deny(request)
     if request.method == 'GET':
         customers = Customer.objects.all().order_by('name')
         customer_list = []
@@ -2520,6 +2581,7 @@ def customer_api(request):
 
 
 @login_required
+@perm_required('cart')
 def export_customer_cart_excel(request, customer_id):
     """Export customer cart to Excel file"""
     try:
@@ -2715,6 +2777,7 @@ def export_customer_cart_excel(request, customer_id):
 
 
 @login_required
+@perm_required('cart')
 def print_customer_cart(request, customer_id):
     """Render customer cart for printing"""
     try:
@@ -2859,6 +2922,7 @@ def print_customer_cart(request, customer_id):
     return JsonResponse({'success': False, 'message': 'Method not allowed'})
 
 @login_required
+@perm_required('cart')
 def customer_cart_view(request, customer_id):
     """View customer's cart details"""
     customer = get_object_or_404(Customer, id=customer_id)
@@ -2882,6 +2946,7 @@ def customer_cart_view(request, customer_id):
 
 @csrf_exempt
 @login_required
+@perm_required('cart_edit')
 def import_customer_cart_excel(request, customer_id):
     """Import products (code, quantity) from Excel into customer's active cart.
     Expected columns: Product Code, Quantity. Non-existent products are ignored.
@@ -2977,10 +3042,13 @@ def import_customer_cart_excel(request, customer_id):
 
 @csrf_exempt
 @login_required
+@perm_required('cart')
 def cart_api(request, customer_id):
     """API for cart operations"""
     customer = get_object_or_404(Customer, id=customer_id)
     
+    if request.method != 'GET' and not user_can(request.user, 'cart_edit'):
+        return deny(request)
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -3680,6 +3748,7 @@ def customers_android_locked_ids_api(request):
 
 
 @login_required
+@perm_required('products_price')
 def price_setting_api(request):
     ps = PriceSetting.get_singleton()
     if request.method == 'GET':
@@ -3714,3 +3783,1509 @@ def price_setting_api(request):
         except Exception as e:
             return JsonResponse({'success': False, 'message': str(e)}, status=500)
     return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+# ==============================================================
+# Quotation Management
+# ==============================================================
+
+QUOTATION_CURRENCIES = ('THB', 'USD', 'EUR')
+_QUOTATION_CURRENCY_FIELD = {'THB': 'thai_baht', 'USD': 'usd_rate', 'EUR': 'euro_rate'}
+
+
+def _next_quotation_number():
+    """QT-<year>-<seq> — sequence resets each year."""
+    prefix = f"QT-{timezone.now().year}-"
+    last = (Quotation.objects
+            .filter(quotation_number__startswith=prefix)
+            .order_by('-quotation_number')
+            .values_list('quotation_number', flat=True)
+            .first())
+    seq = 1
+    if last:
+        try:
+            seq = int(last.rsplit('-', 1)[-1]) + 1
+        except (ValueError, IndexError):
+            seq = Quotation.objects.filter(quotation_number__startswith=prefix).count() + 1
+    return f"{prefix}{seq:04d}"
+
+
+def _quotation_unit_price(product, currency, price_setting=None):
+    """Snapshot unit price for a product in the quotation's currency."""
+    field = _QUOTATION_CURRENCY_FIELD.get(currency, 'thai_baht')
+    computed = _get_computed_prices(product, price_setting)
+    return _parse_price_to_decimal(computed.get(field)) or Decimal('0')
+
+
+def _recalc_quotation_total(quotation):
+    total = sum(
+        (item.line_amount or Decimal('0')) for item in quotation.items.all()
+    )
+    quotation.total_amount = Decimal(total).quantize(Decimal('0.01'))
+    quotation.save(update_fields=['total_amount', 'updated_at'])
+
+
+def _serialize_quotation_item(item):
+    product = item.product
+    try:
+        image_url = product.images.first().image.url if product and product.images.exists() else ''
+    except Exception:
+        image_url = ''
+    return {
+        'id': item.id,
+        'product_id': product.id if product else None,
+        'product_code': item.product_code or (product.child_code if product else ''),
+        'description': item.description or (product.description if product else '') or '',
+        'image_url': image_url,
+        'location': product.location if product else '',
+        'quantity': item.quantity,
+        'unit_price': float(item.unit_price or 0),
+        'line_amount': float(item.line_amount or 0),
+        'note': item.note or '',
+    }
+
+
+def _serialize_quotation(q):
+    return {
+        'id': q.id,
+        'quotation_number': q.quotation_number or '',
+        'customer_id': q.customer_id,
+        'customer_name': q.customer.name if q.customer else '',
+        'quotation_date': q.quotation_date.strftime('%Y-%m-%d') if q.quotation_date else '',
+        'validity_date': q.validity_date.strftime('%Y-%m-%d') if q.validity_date else '',
+        'status': q.status,
+        'status_display': q.get_status_display(),
+        'currency': q.currency,
+        'total_amount': float(q.total_amount or 0),
+        'item_count': q.items.count(),
+        'created_by': (q.created_by.get_full_name() or q.created_by.username) if q.created_by else '',
+        'created_at': q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '',
+    }
+
+
+@csrf_exempt
+@login_required
+@perm_required('quotations_create')
+def create_quotation_from_cart(request, customer_id):
+    """Create a quotation snapshot from the customer's active cart."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    customer = get_object_or_404(Customer, id=customer_id)
+    try:
+        data = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+
+    currency = (data.get('currency') or 'THB').upper()
+    if currency not in QUOTATION_CURRENCIES:
+        currency = 'THB'
+
+    cart = Cart.objects.filter(customer=customer, is_active=True).first()
+    if not cart:
+        return JsonResponse({'success': False, 'message': 'No active cart for this customer'})
+    cart_items = list(cart.items.select_related('product').all())
+    if not cart_items:
+        return JsonResponse({'success': False, 'message': 'Cart is empty — add items before creating a quotation'})
+
+    price_setting = PriceSetting.get_singleton()
+    quotation = None
+    for attempt in range(5):
+        try:
+            with transaction.atomic():
+                quotation = Quotation.objects.create(
+                    quotation_number=_next_quotation_number(),
+                    customer=customer,
+                    cart=cart,
+                    quotation_date=timezone.now().date(),
+                    status=Quotation.Status.DRAFT,
+                    currency=currency,
+                    created_by=request.user,
+                )
+                total = Decimal('0')
+                for ci in cart_items:
+                    unit = _quotation_unit_price(ci.product, currency, price_setting)
+                    line = (unit * ci.quantity).quantize(Decimal('0.01'))
+                    QuotationItem.objects.create(
+                        quotation=quotation,
+                        product=ci.product,
+                        source_cart_item=ci,
+                        product_code=ci.product.child_code or '',
+                        description=ci.product.description or '',
+                        quantity=ci.quantity,
+                        unit_price=unit.quantize(Decimal('0.01')),
+                        line_amount=line,
+                        note=ci.note or '',
+                    )
+                    total += line
+                quotation.total_amount = total.quantize(Decimal('0.01'))
+                quotation.save(update_fields=['total_amount', 'updated_at'])
+            break
+        except IntegrityError:
+            if attempt == 4:
+                return JsonResponse({'success': False, 'message': 'Could not allocate a quotation number, please retry'}, status=500)
+
+    return JsonResponse({
+        'success': True,
+        'message': f'Quotation {quotation.quotation_number} created',
+        'quotation_id': quotation.id,
+        'quotation_number': quotation.quotation_number,
+        'redirect_url': f'/quotations/{quotation.id}/',
+    })
+
+
+@login_required
+@perm_required('quotations')
+def quotation_list_view(request):
+    """Quotations dashboard page"""
+    return render(request, 'quotations.html', {'statuses': Quotation.Status.choices})
+
+
+@login_required
+@perm_required('quotations')
+def quotation_list_api(request):
+    """Filtered quotation list for the dashboard table."""
+    qs = Quotation.objects.select_related('customer', 'created_by').prefetch_related('items')
+    q = (request.GET.get('q') or '').strip()
+    status = (request.GET.get('status') or '').strip()
+    date_from = (request.GET.get('date_from') or '').strip()
+    date_to = (request.GET.get('date_to') or '').strip()
+    if q:
+        qs = qs.filter(Q(quotation_number__icontains=q) | Q(customer__name__icontains=q))
+    if status:
+        qs = qs.filter(status=status)
+    if date_from:
+        qs = qs.filter(quotation_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(quotation_date__lte=date_to)
+    return JsonResponse({'quotations': [_serialize_quotation(q) for q in qs]})
+
+
+@login_required
+@perm_required('quotations')
+def quotation_detail_view(request, quotation_id):
+    """Quotation detail/edit page"""
+    quotation = get_object_or_404(
+        Quotation.objects.select_related('customer', 'cart', 'created_by'),
+        id=quotation_id,
+    )
+    items = quotation.items.select_related('product').prefetch_related('product__images')
+    documents = quotation.documents.select_related('uploaded_by').all()
+    badge_class = {'draft': 'secondary', 'sent': 'info', 'accepted': 'success', 'rejected': 'danger'}.get(quotation.status, 'secondary')
+
+    # Follow-ups: pending first (soonest scheduled first), then completed
+    now = timezone.now()
+    follow_ups = list(quotation.follow_ups.select_related('created_by').all())
+    follow_ups.sort(key=lambda f: (f.is_done, f.follow_up_at or timezone.datetime.max.replace(tzinfo=now.tzinfo)))
+    for fu in follow_ups:
+        fu.state = _follow_up_state(fu, now)
+    next_follow_up = (quotation.follow_ups
+                      .filter(is_done=False, follow_up_at__isnull=False)
+                      .order_by('follow_up_at')
+                      .select_related('created_by')
+                      .first())
+    last_follow_up = (quotation.follow_ups
+                      .filter(is_done=True)
+                      .order_by('-completed_at')
+                      .select_related('created_by')
+                      .first())
+    if next_follow_up:
+        next_follow_up.state = _follow_up_state(next_follow_up, now)
+
+    context = {
+        'quotation': quotation,
+        'items': items,
+        'documents': documents,
+        'badge_class': badge_class,
+        'customer': quotation.customer,
+        'products': Product.objects.prefetch_related('images').all().order_by('parent_code', 'child_code'),
+        'statuses': Quotation.Status.choices,
+        'currencies': QUOTATION_CURRENCIES,
+        'follow_ups': follow_ups,
+        'follow_ups_json': [_serialize_follow_up(fu) for fu in follow_ups],
+        'next_follow_up': next_follow_up,
+        'last_follow_up': last_follow_up,
+        'channels': QuotationFollowUp.Channel.choices,
+        'existing_po': quotation.purchase_orders.exclude(status=PurchaseOrder.Status.CANCELLED).first(),
+        'now': now,
+    }
+    return render(request, 'quotation_detail.html', context)
+
+
+@csrf_exempt
+@login_required
+@perm_required('quotations')
+def quotation_api(request, quotation_id):
+    """API for quotation update/status/items/documents/delete"""
+    quotation = get_object_or_404(Quotation, id=quotation_id)
+
+    # Multipart upload (documents) arrives as form POST, not JSON
+    if request.method == 'POST' and request.POST.get('action') == 'upload_document':
+        if not user_can(request.user, 'quotations_edit'):
+            return deny(request)
+        upload = request.FILES.get('file')
+        if not upload:
+            return JsonResponse({'success': False, 'message': 'No file provided'})
+        doc = QuotationDocument.objects.create(
+            quotation=quotation,
+            file=upload,
+            name=(request.POST.get('name') or upload.name or '')[:255],
+            uploaded_by=request.user,
+        )
+        return JsonResponse({'success': True, 'message': 'Document uploaded', 'document_id': doc.id})
+
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+
+    action = data.get('action')
+    required_perm = 'quotations_delete' if action == 'delete' else 'quotations_edit'
+    if not user_can(request.user, required_perm):
+        return deny(request)
+    try:
+        if action == 'update':
+            for f in ('quotation_date', 'validity_date'):
+                raw = (data.get(f) or '').strip()
+                parsed = parse_date(raw) if raw else None
+                if raw and parsed is None:
+                    return JsonResponse({'success': False, 'message': f'Invalid {f.replace("_", " ")} — use YYYY-MM-DD'})
+                setattr(quotation, f, parsed)
+            currency = (data.get('currency') or quotation.currency or 'THB').upper()
+            if currency not in QUOTATION_CURRENCIES:
+                return JsonResponse({'success': False, 'message': 'Invalid currency'})
+            quotation.currency = currency
+            quotation.terms_conditions = data.get('terms_conditions', quotation.terms_conditions)
+            quotation.remarks = data.get('remarks', quotation.remarks)
+            quotation.save()
+            return JsonResponse({'success': True, 'message': 'Quotation updated'})
+
+        elif action == 'update_status':
+            status = data.get('status')
+            valid = {c[0] for c in Quotation.Status.choices}
+            if status not in valid:
+                return JsonResponse({'success': False, 'message': 'Invalid status'})
+            quotation.status = status
+            quotation.save(update_fields=['status', 'updated_at'])
+            return JsonResponse({'success': True, 'message': f'Status updated to {dict(Quotation.Status.choices)[status]}'})
+
+        elif action == 'update_item':
+            item = get_object_or_404(QuotationItem, id=data.get('item_id'), quotation=quotation)
+            quantity = int(data.get('quantity', item.quantity))
+            if quantity <= 0:
+                return JsonResponse({'success': False, 'message': 'Quantity must be at least 1'})
+            unit_price = _parse_price_to_decimal(data.get('unit_price'))
+            if unit_price is None or unit_price < 0:
+                return JsonResponse({'success': False, 'message': 'Invalid unit price'})
+            item.quantity = quantity
+            item.unit_price = unit_price.quantize(Decimal('0.01'))
+            item.line_amount = (item.unit_price * quantity).quantize(Decimal('0.01'))
+            if 'note' in data:
+                item.note = data.get('note') or ''
+            item.save()
+            _recalc_quotation_total(quotation)
+            return JsonResponse({
+                'success': True, 'message': 'Item updated',
+                'item': _serialize_quotation_item(item),
+                'total_amount': float(quotation.total_amount),
+            })
+
+        elif action == 'add_item':
+            product_id = data.get('product_id')
+            quantity = int(data.get('quantity', 1))
+            if not product_id:
+                return JsonResponse({'success': False, 'message': 'Product ID is required'})
+            if quantity <= 0:
+                return JsonResponse({'success': False, 'message': 'Quantity must be at least 1'})
+            product = get_object_or_404(Product, id=product_id)
+            existing = quotation.items.filter(product=product).first()
+            if existing:
+                existing.quantity += quantity
+                existing.line_amount = (existing.unit_price * existing.quantity).quantize(Decimal('0.01'))
+                existing.save(update_fields=['quantity', 'line_amount'])
+                item = existing
+            else:
+                unit = _quotation_unit_price(product, quotation.currency)
+                item = QuotationItem.objects.create(
+                    quotation=quotation,
+                    product=product,
+                    product_code=product.child_code or '',
+                    description=product.description or '',
+                    quantity=quantity,
+                    unit_price=unit.quantize(Decimal('0.01')),
+                    line_amount=(unit * quantity).quantize(Decimal('0.01')),
+                )
+            _recalc_quotation_total(quotation)
+            return JsonResponse({
+                'success': True, 'message': f'Added {quantity}x {product.child_code}',
+                'item': _serialize_quotation_item(item),
+                'total_amount': float(quotation.total_amount),
+            })
+
+        elif action == 'remove_item':
+            item = get_object_or_404(QuotationItem, id=data.get('item_id'), quotation=quotation)
+            code = item.product_code
+            item.delete()
+            _recalc_quotation_total(quotation)
+            return JsonResponse({'success': True, 'message': f'Removed {code}', 'total_amount': float(quotation.total_amount)})
+
+        elif action == 'delete_document':
+            doc = get_object_or_404(QuotationDocument, id=data.get('document_id'), quotation=quotation)
+            try:
+                if doc.file and doc.file.name and doc.file.storage.exists(doc.file.name):
+                    doc.file.storage.delete(doc.file.name)
+            except Exception:
+                pass
+            doc.delete()
+            return JsonResponse({'success': True, 'message': 'Document deleted'})
+
+        elif action == 'delete':
+            number = quotation.quotation_number
+            quotation.delete()
+            return JsonResponse({'success': True, 'message': f'Quotation {number} deleted'})
+
+        return JsonResponse({'success': False, 'message': 'Invalid action'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
+@login_required
+@perm_required('quotations')
+def quotation_print_view(request, quotation_id):
+    """Render a quotation for printing / save-as-PDF"""
+    try:
+        quotation = get_object_or_404(
+            Quotation.objects.select_related('customer', 'cart', 'created_by'),
+            id=quotation_id,
+        )
+        items = quotation.items.select_related('product').prefetch_related('product__images')
+        customer = quotation.customer
+
+        items_for_print = []
+        for it in items:
+            p = it.product
+            image_url = ''
+            try:
+                if p and p.images.exists():
+                    image_url = request.build_absolute_uri(p.images.first().image.url)
+            except Exception:
+                image_url = ''
+            items_for_print.append({
+                'code': it.product_code or (p.child_code if p else '-'),
+                'description': it.description or (p.description if p else '') or '-',
+                'quantity': it.quantity,
+                'unit': float(it.unit_price or 0),
+                'amount': float(it.line_amount or 0),
+                'note': it.note or (p.note if p else '') or '',
+                'image_url': image_url,
+            })
+
+        salesperson = ''
+        if quotation.created_by:
+            salesperson = quotation.created_by.get_full_name() or quotation.created_by.username
+        address_display = ''
+        if quotation.cart and quotation.cart.address_override:
+            address_display = quotation.cart.address_override
+        elif customer and customer.address:
+            address_display = customer.address
+
+        context = {
+            'quotation': quotation,
+            'customer': customer,
+            'items_for_print': items_for_print,
+            'total_amount': float(quotation.total_amount or 0),
+            'total_quantity': sum(i['quantity'] for i in items_for_print),
+            'total_items': len(items_for_print),
+            'currency_label': quotation.currency or 'THB',
+            'print_date': timezone.now(),
+            'salesperson_name': salesperson,
+            'doc_ref': getattr(quotation.cart, 'doc_ref', None) or '',
+            'customer_code': getattr(quotation.cart, 'customer_code', None) or '',
+            'address_display': address_display,
+        }
+        return render(request, 'quotation_print.html', context)
+    except Exception as e:
+        messages.error(request, f'Error preparing quotation for printing: {str(e)}')
+        return redirect('quotation_detail', quotation_id=quotation_id)
+
+
+# ==============================================================
+# Quotation Follow-Up Management
+# ==============================================================
+
+def _follow_up_state(fu, now=None):
+    """Computed state: completed / overdue / upcoming."""
+    now = now or timezone.now()
+    if fu.is_done:
+        return 'completed'
+    if fu.follow_up_at and fu.follow_up_at < now:
+        return 'overdue'
+    return 'upcoming'
+
+
+def _serialize_follow_up(fu):
+    proof_url = ''
+    proof_name = ''
+    try:
+        if fu.proof and fu.proof.name:
+            proof_url = fu.proof.url
+            proof_name = fu.proof.name.rsplit('/', 1)[-1]
+    except Exception:
+        pass
+    return {
+        'id': fu.id,
+        'follow_up_at': fu.follow_up_at.strftime('%Y-%m-%d %H:%M') if fu.follow_up_at else '',
+        'follow_up_at_input': fu.follow_up_at.strftime('%Y-%m-%dT%H:%M') if fu.follow_up_at else '',
+        'channel': fu.channel,
+        'channel_display': fu.get_channel_display(),
+        'notes': fu.notes or '',
+        'is_done': fu.is_done,
+        'completed_at': fu.completed_at.strftime('%Y-%m-%d %H:%M') if fu.completed_at else '',
+        'state': _follow_up_state(fu),
+        'proof_url': proof_url,
+        'proof_name': proof_name,
+        'created_by': (fu.created_by.get_full_name() or fu.created_by.username) if fu.created_by else '',
+        'created_at': fu.created_at.strftime('%Y-%m-%d %H:%M') if fu.created_at else '',
+    }
+
+
+def _follow_up_payload(quotation):
+    """Full serialized list + next/last summary for in-place UI refresh."""
+    follow_ups = [ _serialize_follow_up(fu) for fu in
+        sorted(
+            quotation.follow_ups.select_related('created_by').all(),
+            key=lambda f: (f.is_done, f.follow_up_at or timezone.datetime.max.replace(tzinfo=timezone.get_current_timezone())),
+        ) ]
+    next_fu = (quotation.follow_ups
+               .filter(is_done=False, follow_up_at__isnull=False)
+               .order_by('follow_up_at')
+               .select_related('created_by')
+               .first())
+    last_fu = (quotation.follow_ups
+               .filter(is_done=True)
+               .order_by('-completed_at')
+               .select_related('created_by')
+               .first())
+    return {
+        'follow_ups': follow_ups,
+        'summary': {
+            'next': _serialize_follow_up(next_fu) if next_fu else None,
+            'last': _serialize_follow_up(last_fu) if last_fu else None,
+        },
+    }
+
+
+def _parse_follow_up_at(raw):
+    """Parse a datetime-local / ISO value into an aware datetime, or None."""
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    parsed = parse_datetime(raw)
+    if parsed is None:
+        try:
+            parsed = timezone.datetime.strptime(raw, '%Y-%m-%d %H:%M')
+        except (ValueError, TypeError):
+            return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed)
+    return parsed
+
+
+def _read_follow_up_fields(request):
+    """Unified field extraction from JSON body or multipart POST."""
+    if request.content_type and 'multipart' in request.content_type:
+        return {
+            'follow_up_at': request.POST.get('follow_up_at'),
+            'channel': request.POST.get('channel'),
+            'notes': request.POST.get('notes'),
+            'proof': request.FILES.get('proof'),
+        }
+    try:
+        data = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return None
+    return {
+        'follow_up_at': data.get('follow_up_at'),
+        'channel': data.get('channel'),
+        'notes': data.get('notes'),
+        'proof': None,
+        'action': data.get('action'),
+    }
+
+
+def _validate_follow_up_fields(fields):
+    """Returns (follow_up_at, channel, notes, error_response)."""
+    if fields is None:
+        return None, None, None, JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+    follow_up_at = _parse_follow_up_at(fields.get('follow_up_at'))
+    if not follow_up_at:
+        return None, None, None, JsonResponse({'success': False, 'message': 'A valid follow-up date/time is required'})
+    channel = (fields.get('channel') or QuotationFollowUp.Channel.CALL).strip()
+    if channel not in {c[0] for c in QuotationFollowUp.Channel.choices}:
+        return None, None, None, JsonResponse({'success': False, 'message': 'Invalid channel'})
+    return follow_up_at, channel, (fields.get('notes') or '').strip(), None
+
+
+@csrf_exempt
+@login_required
+@perm_required('quotations_followups')
+def follow_up_api(request, quotation_id):
+    """Create a follow-up on a quotation (JSON or multipart with proof)."""
+    quotation = get_object_or_404(Quotation, id=quotation_id)
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+
+    fields = _read_follow_up_fields(request)
+    follow_up_at, channel, notes, error = _validate_follow_up_fields(fields)
+    if error:
+        return error
+
+    fu = QuotationFollowUp.objects.create(
+        quotation=quotation,
+        follow_up_at=follow_up_at,
+        channel=channel,
+        notes=notes,
+        created_by=request.user,
+    )
+    if fields.get('proof'):
+        fu.proof = fields['proof']
+        fu.save(update_fields=['proof'])
+
+    payload = _follow_up_payload(quotation)
+    payload.update({'success': True, 'message': 'Follow-up created'})
+    return JsonResponse(payload)
+
+
+@csrf_exempt
+@login_required
+@perm_required('quotations_followups')
+def follow_up_detail_api(request, follow_up_id):
+    """Update / complete / reopen / delete / remove_proof on a follow-up."""
+    fu = get_object_or_404(QuotationFollowUp.objects.select_related('quotation'), id=follow_up_id)
+    quotation = fu.quotation
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+
+    # Action comes from POST (multipart) or JSON
+    if request.content_type and 'multipart' in request.content_type:
+        action = request.POST.get('action')
+        fields = _read_follow_up_fields(request)
+    else:
+        fields = _read_follow_up_fields(request)
+        if fields is None:
+            return JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+        action = fields.get('action')
+
+    try:
+        if action == 'update':
+            follow_up_at, channel, notes, error = _validate_follow_up_fields(fields)
+            if error:
+                return error
+            fu.follow_up_at = follow_up_at
+            fu.channel = channel
+            fu.notes = notes
+            if fields.get('proof'):
+                try:
+                    if fu.proof and fu.proof.name and fu.proof.storage.exists(fu.proof.name):
+                        fu.proof.storage.delete(fu.proof.name)
+                except Exception:
+                    pass
+                fu.proof = fields['proof']
+            fu.save()
+            payload = _follow_up_payload(quotation)
+            payload.update({'success': True, 'message': 'Follow-up updated'})
+            return JsonResponse(payload)
+
+        elif action == 'complete':
+            fu.is_done = True
+            fu.completed_at = timezone.now()
+            fu.save(update_fields=['is_done', 'completed_at'])
+            payload = _follow_up_payload(quotation)
+            payload.update({'success': True, 'message': 'Follow-up marked as completed'})
+            return JsonResponse(payload)
+
+        elif action == 'reopen':
+            fu.is_done = False
+            fu.completed_at = None
+            fu.save(update_fields=['is_done', 'completed_at'])
+            payload = _follow_up_payload(quotation)
+            payload.update({'success': True, 'message': 'Follow-up reopened'})
+            return JsonResponse(payload)
+
+        elif action == 'delete':
+            try:
+                if fu.proof and fu.proof.name and fu.proof.storage.exists(fu.proof.name):
+                    fu.proof.storage.delete(fu.proof.name)
+            except Exception:
+                pass
+            fu.delete()
+            payload = _follow_up_payload(quotation)
+            payload.update({'success': True, 'message': 'Follow-up deleted'})
+            return JsonResponse(payload)
+
+        elif action == 'remove_proof':
+            try:
+                if fu.proof and fu.proof.name and fu.proof.storage.exists(fu.proof.name):
+                    fu.proof.storage.delete(fu.proof.name)
+            except Exception:
+                pass
+            fu.proof = None
+            fu.save(update_fields=['proof'])
+            payload = _follow_up_payload(quotation)
+            payload.update({'success': True, 'message': 'Proof removed'})
+            return JsonResponse(payload)
+
+        return JsonResponse({'success': False, 'message': 'Invalid action'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
+# ==============================================================
+# Purchase Order / Order Management
+# ==============================================================
+
+
+def _next_po_number():
+    """PO-<year>-<seq> — sequence resets each year."""
+    prefix = f"PO-{timezone.now().year}-"
+    last = (PurchaseOrder.objects
+            .filter(po_number__startswith=prefix)
+            .order_by('-po_number')
+            .values_list('po_number', flat=True)
+            .first())
+    seq = 1
+    if last:
+        try:
+            seq = int(last.rsplit('-', 1)[-1]) + 1
+        except (ValueError, IndexError):
+            seq = PurchaseOrder.objects.filter(po_number__startswith=prefix).count() + 1
+    return f"{prefix}{seq:04d}"
+
+
+def _is_overdue(po, today=None):
+    """An open order past its due date is overdue."""
+    today = today or timezone.now().date()
+    return bool(po.expected_date and po.expected_date < today
+                and po.status in _OPEN_PO_STATUSES)
+
+
+def _serialize_order(po):
+    ordered = 0
+    remaining = 0
+    for item in po.items.all():
+        ordered += item.ordered_quantity
+        remaining += item.remaining_quantity
+    quotation = po.quotation
+    customer = po.customer
+    return {
+        'id': po.id,
+        'po_number': po.po_number or '',
+        'quotation_id': quotation.id if quotation else None,
+        'quotation_number': quotation.quotation_number if quotation else '',
+        'customer_name': customer.name if customer else '',
+        'order_date': po.order_date.strftime('%Y-%m-%d') if po.order_date else '',
+        'expected_date': po.expected_date.strftime('%Y-%m-%d') if po.expected_date else '',
+        'ordered_qty': ordered,
+        'remaining_qty': remaining,
+        'status': po.status,
+        'status_display': po.get_status_display(),
+        'is_overdue': _is_overdue(po),
+        'created_by': (po.created_by.get_full_name() or po.created_by.username) if po.created_by else '',
+        'created_at': po.created_at.strftime('%Y-%m-%d %H:%M') if po.created_at else '',
+    }
+
+
+@csrf_exempt
+@login_required
+@perm_required('quotations_openpo')
+def create_order_from_quotation(request, quotation_id):
+    """OPEN PO TO FACTORY — create a Purchase Order snapshot from an accepted quotation."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    quotation = get_object_or_404(
+        Quotation.objects.select_related('customer').prefetch_related('items__product'),
+        id=quotation_id,
+    )
+    try:
+        data = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+
+    if quotation.status != Quotation.Status.ACCEPTED:
+        return JsonResponse({
+            'success': False,
+            'message': 'Mark the quotation as Accepted first (customer confirms outside the system)',
+        }, status=400)
+
+    existing = quotation.purchase_orders.exclude(status=PurchaseOrder.Status.CANCELLED).first()
+    if existing:
+        return JsonResponse({
+            'success': False,
+            'message': f'Purchase Order {existing.po_number or existing.id} already exists for this quotation',
+            'existing_po_id': existing.id,
+            'redirect_url': f'/orders/{existing.id}/',
+        }, status=400)
+
+    items = list(quotation.items.select_related('product').all())
+    if not items:
+        return JsonResponse({'success': False, 'message': 'Quotation has no items to order'})
+
+    expected_raw = (data.get('expected_date') or '').strip()
+    expected_date = parse_date(expected_raw) if expected_raw else None
+    if not expected_date:
+        return JsonResponse({'success': False, 'message': 'A valid Due Date is required'}, status=400)
+    remarks = (data.get('remarks') or '').strip()
+
+    order = None
+    for attempt in range(5):
+        try:
+            with transaction.atomic():
+                order = PurchaseOrder.objects.create(
+                    po_number=_next_po_number(),
+                    quotation=quotation,
+                    order_date=timezone.now().date(),
+                    expected_date=expected_date,
+                    status=PurchaseOrder.Status.ORDERED,
+                    remarks=remarks,
+                    created_by=request.user,
+                )
+                for it in items:
+                    PurchaseOrderItem.objects.create(
+                        purchase_order=order,
+                        product=it.product,
+                        quotation_item=it,
+                        product_code=it.product_code or (it.product.child_code if it.product else ''),
+                        description=it.description or (it.product.description if it.product else ''),
+                        ordered_quantity=it.quantity,
+                        note=it.note or '',
+                    )
+            break
+        except IntegrityError:
+            if attempt == 4:
+                return JsonResponse({'success': False, 'message': 'Could not allocate a PO number, please retry'}, status=500)
+
+    return JsonResponse({
+        'success': True,
+        'message': f'Purchase Order {order.po_number} created',
+        'order_id': order.id,
+        'po_number': order.po_number,
+        'redirect_url': f'/orders/{order.id}/',
+    })
+
+
+@login_required
+@perm_required('orders')
+def order_list_view(request):
+    """Orders / Purchase Orders dashboard page"""
+    return render(request, 'orders.html', {'statuses': PurchaseOrder.Status.choices})
+
+
+@login_required
+@perm_required('orders')
+def order_list_api(request):
+    """Filtered order list for the dashboard table."""
+    qs = (PurchaseOrder.objects
+          .select_related('quotation__customer', 'created_by')
+          .prefetch_related('items'))
+    q = (request.GET.get('q') or '').strip()
+    status = (request.GET.get('status') or '').strip()
+    date_from = (request.GET.get('date_from') or '').strip()
+    date_to = (request.GET.get('date_to') or '').strip()
+    if q:
+        qs = qs.filter(Q(po_number__icontains=q)
+                       | Q(quotation__quotation_number__icontains=q)
+                       | Q(quotation__customer__name__icontains=q))
+    if status == 'overdue':
+        qs = qs.filter(expected_date__lt=timezone.now().date(), status__in=_OPEN_PO_STATUSES)
+    elif status:
+        qs = qs.filter(status=status)
+    if date_from:
+        qs = qs.filter(order_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(order_date__lte=date_to)
+    return JsonResponse({'orders': [_serialize_order(po) for po in qs]})
+
+
+@login_required
+@perm_required('orders')
+def order_detail_view(request, order_id):
+    """Order / Purchase Order detail page"""
+    order = get_object_or_404(
+        PurchaseOrder.objects.select_related('quotation__customer', 'quotation__cart', 'created_by'),
+        id=order_id,
+    )
+    items = order.items.select_related('product', 'quotation_item').prefetch_related('product__images')
+    quotation = order.quotation
+    customer = order.customer
+    badge_class = {'draft': 'secondary', 'ordered': 'info', 'partially_received': 'warning',
+                   'received': 'success', 'cancelled': 'danger'}.get(order.status, 'secondary')
+
+    receiving_records = (order.receiving_records
+                         .select_related('order_item', 'product', 'received_by').all())
+
+    context = {
+        'order': order,
+        'items': items,
+        'quotation': quotation,
+        'customer': customer,
+        'statuses': PurchaseOrder.Status.choices,
+        'badge_class': badge_class,
+        'is_overdue': _is_overdue(order),
+        'today': timezone.now().date(),
+        'total_ordered': sum(i.ordered_quantity for i in items),
+        'total_received': sum(i.received_quantity for i in items),
+        'total_remaining': sum(i.remaining_quantity for i in items),
+        'receiving_records': receiving_records,
+        'conditions': ReceivingRecord.Condition.choices,
+        'can_receive': order.status in _OPEN_PO_STATUSES and user_can(request.user, 'orders_receive'),
+    }
+    return render(request, 'order_detail.html', context)
+
+
+@login_required
+@perm_required('orders')
+def order_print_view(request, order_id):
+    """Render a Purchase Order for printing / save-as-PDF (factory document)"""
+    try:
+        order = get_object_or_404(
+            PurchaseOrder.objects.select_related('quotation__customer', 'quotation__cart', 'created_by'),
+            id=order_id,
+        )
+        items = order.items.select_related('product', 'quotation_item').prefetch_related('product__images')
+        quotation = order.quotation
+        customer = order.customer
+        currency_label = quotation.currency if quotation and quotation.currency else 'THB'
+
+        items_for_print = []
+        for it in items:
+            p = it.product
+            image_url = ''
+            try:
+                if p and p.images.exists():
+                    image_url = request.build_absolute_uri(p.images.first().image.url)
+            except Exception:
+                image_url = ''
+            qi = it.quotation_item
+            items_for_print.append({
+                'code': it.product_code or (p.child_code if p else '-'),
+                'description': it.description or (p.description if p else '') or '-',
+                'quantity': it.ordered_quantity,
+                'unit': float(qi.unit_price or 0) if qi else 0,
+                'amount': float(qi.line_amount or 0) if qi else 0,
+                'note': it.note or (p.note if p else '') or '',
+                'image_url': image_url,
+            })
+
+        salesperson = ''
+        if order.created_by:
+            salesperson = order.created_by.get_full_name() or order.created_by.username
+        address_display = ''
+        cart = getattr(quotation, 'cart', None) if quotation else None
+        if cart and cart.address_override:
+            address_display = cart.address_override
+        elif customer and customer.address:
+            address_display = customer.address
+
+        context = {
+            'order': order,
+            'quotation': quotation,
+            'customer': customer,
+            'items_for_print': items_for_print,
+            'total_amount': float(quotation.total_amount or 0) if quotation else 0,
+            'total_quantity': sum(i['quantity'] for i in items_for_print),
+            'total_items': len(items_for_print),
+            'currency_label': currency_label,
+            'print_date': timezone.now(),
+            'salesperson_name': salesperson,
+            'doc_ref': getattr(cart, 'doc_ref', None) or '',
+            'customer_code': getattr(cart, 'customer_code', None) or '',
+            'address_display': address_display,
+        }
+        return render(request, 'order_print.html', context)
+    except Exception as e:
+        messages.error(request, f'Error preparing purchase order for printing: {str(e)}')
+        return redirect('order_detail', order_id=order_id)
+
+
+@csrf_exempt
+@login_required
+@perm_required('orders')
+def order_api(request, order_id):
+    """API for order update / delete (items are read-only quotation snapshots)."""
+    order = get_object_or_404(PurchaseOrder, id=order_id)
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+
+    action = data.get('action')
+    required_perm = 'orders_delete' if action == 'delete' else 'orders_edit'
+    if not user_can(request.user, required_perm):
+        return deny(request)
+    try:
+        if action == 'update':
+            if 'order_date' in data:
+                raw = (data.get('order_date') or '').strip()
+                parsed = parse_date(raw) if raw else None
+                if raw and not parsed:
+                    return JsonResponse({'success': False, 'message': 'Invalid order date'}, status=400)
+                order.order_date = parsed
+            if 'expected_date' in data:
+                raw = (data.get('expected_date') or '').strip()
+                parsed = parse_date(raw) if raw else None
+                if not parsed:
+                    return JsonResponse({'success': False, 'message': 'A valid Due Date is required'}, status=400)
+                order.expected_date = parsed
+            if 'status' in data:
+                status = (data.get('status') or '').strip()
+                if status not in {c[0] for c in PurchaseOrder.Status.choices}:
+                    return JsonResponse({'success': False, 'message': 'Invalid status'}, status=400)
+                if status == PurchaseOrder.Status.RECEIVED:
+                    remaining = sum(i.remaining_quantity for i in order.items.all())
+                    if remaining > 0:
+                        return JsonResponse({
+                            'success': False,
+                            'message': f'Cannot mark Received while {remaining} unit(s) are still undelivered',
+                        }, status=400)
+                order.status = status
+            if 'remarks' in data:
+                order.remarks = (data.get('remarks') or '').strip()
+            order.save()
+            return JsonResponse({'success': True, 'message': 'Order updated', 'order': _serialize_order(order)})
+
+        elif action == 'delete':
+            number = order.po_number
+            order.delete()
+            return JsonResponse({'success': True, 'message': f'Purchase Order {number} deleted'})
+
+        return JsonResponse({'success': False, 'message': 'Invalid action'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+
+# ==============================================================
+# Receiving Workflow
+# ==============================================================
+
+def _serialize_order_item(item):
+    product = item.product
+    return {
+        'id': item.id,
+        'product_id': product.id if product else None,
+        'product_code': item.product_code or (product.child_code if product else ''),
+        'description': item.description or (product.description if product else '') or '',
+        'ordered_quantity': item.ordered_quantity,
+        'received_quantity': item.received_quantity,
+        'remaining_quantity': item.remaining_quantity,
+        'note': item.note or '',
+    }
+
+
+def _serialize_receiving_record(rec):
+    photo_url = ''
+    photo_name = ''
+    try:
+        if rec.photo and rec.photo.name:
+            photo_url = rec.photo.url
+            photo_name = rec.photo.name.rsplit('/', 1)[-1]
+    except Exception:
+        pass
+    return {
+        'id': rec.id,
+        'received_at': rec.received_at.strftime('%Y-%m-%d %H:%M') if rec.received_at else '',
+        'order_item_id': rec.order_item_id,
+        'product_id': rec.product_id,
+        'product_code': rec.product_code or (rec.product.child_code if rec.product else ''),
+        'quantity': rec.quantity,
+        'condition': rec.condition,
+        'condition_display': rec.get_condition_display(),
+        'notes': rec.notes or '',
+        'photo_url': photo_url,
+        'photo_name': photo_name,
+        'received_by': (rec.received_by.get_full_name() or rec.received_by.username) if rec.received_by else '',
+    }
+
+
+def _order_payload(order):
+    items = order.items.select_related('product', 'quotation_item').all()
+    records = order.receiving_records.select_related('order_item', 'product', 'received_by').all()
+    return {
+        'order': _serialize_order(order),
+        'items': [_serialize_order_item(i) for i in items],
+        'records': [_serialize_receiving_record(r) for r in records],
+    }
+
+
+def _recompute_order_status(order):
+    """Set status from actual received quantities (open orders only)."""
+    if order.status == PurchaseOrder.Status.CANCELLED:
+        return
+    items = list(order.items.all())
+    if not items:
+        return
+    total_received = sum(i.received_quantity for i in items)
+    if all(i.received_quantity >= i.ordered_quantity for i in items):
+        new_status = PurchaseOrder.Status.RECEIVED
+    elif total_received > 0:
+        new_status = PurchaseOrder.Status.PARTIALLY_RECEIVED
+    else:
+        new_status = PurchaseOrder.Status.ORDERED
+    if new_status != order.status:
+        order.status = new_status
+        order.save(update_fields=['status', 'updated_at'])
+
+
+@csrf_exempt
+@login_required
+@perm_required('orders_receive')
+def order_receive_api(request, order_id):
+    """Record received quantities/conditions/photos for an order's items."""
+    order = get_object_or_404(PurchaseOrder, id=order_id)
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    if order.status not in _OPEN_PO_STATUSES:
+        return JsonResponse({
+            'success': False,
+            'message': f'Cannot receive on a {order.get_status_display()} order',
+        }, status=400)
+
+    # items payload arrives as JSON body or an 'items' form field (multipart w/ photos)
+    if request.content_type and 'multipart' in request.content_type:
+        raw_items = request.POST.get('items')
+        try:
+            entries = json.loads(raw_items) if raw_items else []
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'message': 'Invalid items data'}, status=400)
+    else:
+        try:
+            data = json.loads(request.body) if request.body else {}
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+        entries = data.get('items') or []
+
+    if not isinstance(entries, list) or not entries:
+        return JsonResponse({'success': False, 'message': 'No items to receive'}, status=400)
+
+    items_by_id = {i.id: i for i in order.items.select_related('product').all()}
+    valid_conditions = {c[0] for c in ReceivingRecord.Condition.choices}
+    cleaned = []
+    for entry in entries:
+        item = items_by_id.get(entry.get('order_item_id'))
+        if not item:
+            return JsonResponse({'success': False, 'message': 'Item does not belong to this order'}, status=400)
+        try:
+            qty = int(entry.get('quantity'))
+        except (TypeError, ValueError):
+            return JsonResponse({'success': False, 'message': f'Invalid quantity for {item.product_code or item.id}'}, status=400)
+        if qty < 1:
+            return JsonResponse({'success': False, 'message': f'Quantity must be at least 1 for {item.product_code or item.id}'}, status=400)
+        if qty > item.remaining_quantity:
+            return JsonResponse({
+                'success': False,
+                'message': f'Cannot receive {qty} x {item.product_code or item.id} — only {item.remaining_quantity} remaining',
+            }, status=400)
+        condition = (entry.get('condition') or ReceivingRecord.Condition.GOOD).strip()
+        if condition not in valid_conditions:
+            return JsonResponse({'success': False, 'message': 'Invalid condition'}, status=400)
+        cleaned.append({
+            'item': item,
+            'quantity': qty,
+            'condition': condition,
+            'notes': (entry.get('notes') or '').strip(),
+        })
+
+    try:
+        with transaction.atomic():
+            for c in cleaned:
+                item = c['item']
+                ReceivingRecord.objects.create(
+                    purchase_order=order,
+                    order_item=item,
+                    product=item.product,
+                    product_code=item.product_code or (item.product.child_code if item.product else ''),
+                    quantity=c['quantity'],
+                    condition=c['condition'],
+                    notes=c['notes'],
+                    photo=request.FILES.get(f'photo_{item.id}'),
+                    received_by=request.user,
+                )
+                item.received_quantity += c['quantity']
+                item.save(update_fields=['received_quantity'])
+            _recompute_order_status(order)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+
+    payload = _order_payload(order)
+    total_units = sum(c['quantity'] for c in cleaned)
+    payload.update({
+        'success': True,
+        'message': f'Received {total_units} unit(s) across {len(cleaned)} item(s) — order is now {order.get_status_display()}',
+    })
+    return JsonResponse(payload)
+
+
+# ==============================================================
+# Dashboard, Notifications & Reports
+# ==============================================================
+
+@login_required
+@perm_required('dashboard')
+def dashboard_view(request):
+    """Management dashboard — summary stats + needs-attention list."""
+    now = timezone.now()
+    today = now.date()
+
+    fu_groups = follow_up_items(now)
+    po_groups = order_items(today)
+
+    q_counts = {s: 0 for s, _ in Quotation.Status.choices}
+    for row in Quotation.objects.values('status').annotate(n=models.Count('id')):
+        q_counts[row['status']] = row['n']
+
+    o_counts = {s: 0 for s, _ in PurchaseOrder.Status.choices}
+    for row in PurchaseOrder.objects.values('status').annotate(n=models.Count('id')):
+        o_counts[row['status']] = row['n']
+
+    recv = ReceivingRecord.objects.aggregate(
+        total_units=models.Sum('quantity'), records=models.Count('id'))
+    recv_month = ReceivingRecord.objects.filter(
+        received_at__year=today.year, received_at__month=today.month
+    ).aggregate(units=models.Sum('quantity'))
+
+    stats = {
+        'quotations_total': Quotation.objects.count(),
+        'quotations_by_status': q_counts,
+        'orders_total': PurchaseOrder.objects.count(),
+        'orders_by_status': o_counts,
+        'orders_overdue': len(po_groups['overdue']),
+        'orders_open': sum(len(po_groups[g]) for g in ('overdue', 'due_soon', 'open')),
+        'fu_pending': QuotationFollowUp.objects.filter(is_done=False).count(),
+        'fu_overdue': len(fu_groups['overdue']),
+        'fu_due_today': len(fu_groups['due_today']),
+        'fu_upcoming': len(fu_groups['upcoming']),
+        'received_units': recv['total_units'] or 0,
+        'received_records': recv['records'],
+        'received_units_month': recv_month['units'] or 0,
+    }
+
+    context = {
+        'stats': stats,
+        'fu_groups': fu_groups,
+        'po_groups': po_groups,
+        'attention_items': build_notifications(now)['notifications'],
+        'line_configured': line_configured(),
+    }
+    return render(request, 'dashboard.html', context)
+
+
+@login_required
+@perm_required('notifications')
+def notifications_view(request):
+    """Notifications page — grouped pending follow-ups and orders."""
+    data = build_notifications()
+    return render(request, 'notifications.html', {
+        'groups': data['groups'],
+        'line_configured': data['line_configured'],
+    })
+
+
+@login_required
+@perm_required('notifications')
+def notifications_api(request):
+    """JSON feed for the navbar bell."""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    data = build_notifications()
+    return JsonResponse({
+        'notifications': data['notifications'],
+        'count': data['count'],
+        'line_configured': data['line_configured'],
+    })
+
+
+@csrf_exempt
+@login_required
+@perm_required('notifications')
+def send_line_notification(request):
+    """Push the staff reminder summary to LINE (staff-only trigger)."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    result = send_line_message(build_reminder_text())
+    return JsonResponse({
+        'success': result['sent'],
+        'sent': result['sent'],
+        'message': 'LINE reminder sent' if result['sent'] else result['reason'],
+        'configured': result.get('configured', False),
+    })
+
+
+@login_required
+@perm_required('reports')
+def reports_view(request):
+    """Reports page — charts + filterable tables."""
+    return render(request, 'reports.html', {
+        'quotation_statuses': Quotation.Status.choices,
+        'order_statuses': PurchaseOrder.Status.choices,
+        'fu_states': [('upcoming', 'Upcoming'), ('overdue', 'Overdue'), ('completed', 'Completed')],
+        'conditions': ReceivingRecord.Condition.choices,
+    })
+
+
+_REPORT_TYPES = ('quotations', 'follow_ups', 'orders', 'receiving')
+
+
+@login_required
+@perm_required('reports')
+def reports_api(request, report_type):
+    """Filtered report rows for the reports page tables."""
+    if report_type not in _REPORT_TYPES:
+        return JsonResponse({'success': False, 'message': 'Invalid report type'}, status=400)
+
+    q = (request.GET.get('q') or '').strip()
+    status = (request.GET.get('status') or '').strip()
+    date_from = (request.GET.get('date_from') or '').strip()
+    date_to = (request.GET.get('date_to') or '').strip()
+    now = timezone.now()
+
+    if report_type == 'quotations':
+        qs = Quotation.objects.select_related('customer', 'created_by').prefetch_related('items')
+        if q:
+            qs = qs.filter(Q(quotation_number__icontains=q) | Q(customer__name__icontains=q))
+        if status:
+            qs = qs.filter(status=status)
+        if date_from:
+            qs = qs.filter(quotation_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(quotation_date__lte=date_to)
+        rows = [{
+            'quotation_number': x.quotation_number or f'#{x.id}',
+            'quotation_date': x.quotation_date.strftime('%Y-%m-%d') if x.quotation_date else '',
+            'validity_date': x.validity_date.strftime('%Y-%m-%d') if x.validity_date else '',
+            'customer_name': x.customer.name if x.customer else '',
+            'items_count': x.items.count(),
+            'currency': x.currency,
+            'total_amount': float(x.total_amount or 0),
+            'status': x.status,
+            'status_display': x.get_status_display(),
+            'created_by': (x.created_by.get_full_name() or x.created_by.username) if x.created_by else '',
+            'url': f'/quotations/{x.id}/',
+        } for x in qs]
+        return JsonResponse({'rows': rows, 'count': len(rows)})
+
+    if report_type == 'follow_ups':
+        qs = (QuotationFollowUp.objects
+              .select_related('quotation', 'quotation__customer', 'created_by')
+              .order_by('follow_up_at'))
+        if q:
+            qs = qs.filter(Q(quotation__quotation_number__icontains=q)
+                           | Q(quotation__customer__name__icontains=q))
+        if status == 'completed':
+            qs = qs.filter(is_done=True)
+        elif status == 'overdue':
+            qs = qs.filter(is_done=False, follow_up_at__lt=now)
+        elif status == 'upcoming':
+            qs = qs.filter(is_done=False, follow_up_at__gte=now)
+        if date_from:
+            qs = qs.filter(follow_up_at__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(follow_up_at__date__lte=date_to)
+        rows = []
+        for fu in qs:
+            state = 'completed' if fu.is_done else ('overdue' if fu.follow_up_at and fu.follow_up_at < now else 'upcoming')
+            rows.append({
+                'quotation_number': fu.quotation.quotation_number if fu.quotation else '-',
+                'customer_name': fu.quotation.customer.name if fu.quotation and fu.quotation.customer else '-',
+                'follow_up_at': fu.follow_up_at.strftime('%Y-%m-%d %H:%M') if fu.follow_up_at else '',
+                'channel': fu.get_channel_display(),
+                'state': state,
+                'notes': fu.notes or '',
+                'created_by': (fu.created_by.get_full_name() or fu.created_by.username) if fu.created_by else '',
+                'url': f'/quotations/{fu.quotation_id}/' if fu.quotation_id else '',
+            })
+        return JsonResponse({'rows': rows, 'count': len(rows)})
+
+    if report_type == 'orders':
+        qs = (PurchaseOrder.objects
+              .select_related('quotation', 'quotation__customer', 'created_by')
+              .prefetch_related('items'))
+        if q:
+            qs = qs.filter(Q(po_number__icontains=q)
+                           | Q(quotation__quotation_number__icontains=q)
+                           | Q(quotation__customer__name__icontains=q))
+        if status == 'overdue':
+            qs = qs.filter(expected_date__lt=now.date(), status__in=_OPEN_PO_STATUSES)
+        elif status:
+            qs = qs.filter(status=status)
+        if date_from:
+            qs = qs.filter(order_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(order_date__lte=date_to)
+        rows = []
+        for po in qs:
+            ordered = sum(i.ordered_quantity for i in po.items.all())
+            received = sum(i.received_quantity for i in po.items.all())
+            rows.append({
+                'po_number': po.po_number or f'#{po.id}',
+                'quotation_number': po.quotation.quotation_number if po.quotation else '-',
+                'customer_name': po.customer.name if po.customer else '-',
+                'order_date': po.order_date.strftime('%Y-%m-%d') if po.order_date else '',
+                'expected_date': po.expected_date.strftime('%Y-%m-%d') if po.expected_date else '',
+                'ordered_qty': ordered,
+                'received_qty': received,
+                'remaining_qty': max(ordered - received, 0),
+                'status': po.status,
+                'status_display': po.get_status_display(),
+                'is_overdue': _is_overdue(po, now.date()),
+                'created_by': (po.created_by.get_full_name() or po.created_by.username) if po.created_by else '',
+                'url': f'/orders/{po.id}/',
+            })
+        return JsonResponse({'rows': rows, 'count': len(rows)})
+
+    # report_type == 'receiving'
+    qs = (ReceivingRecord.objects
+          .select_related('purchase_order', 'purchase_order__quotation', 'order_item', 'product', 'received_by')
+          .order_by('-received_at'))
+    if q:
+        qs = qs.filter(Q(purchase_order__po_number__icontains=q)
+                       | Q(product_code__icontains=q)
+                       | Q(purchase_order__quotation__quotation_number__icontains=q))
+    if status:
+        qs = qs.filter(condition=status)
+    if date_from:
+        qs = qs.filter(received_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(received_at__date__lte=date_to)
+    rows = [{
+        'received_at': r.received_at.strftime('%Y-%m-%d %H:%M') if r.received_at else '',
+        'po_number': r.purchase_order.po_number if r.purchase_order else '-',
+        'quotation_number': (r.purchase_order.quotation.quotation_number
+                             if r.purchase_order and r.purchase_order.quotation else '-'),
+        'product_code': r.product_code or (r.product.child_code if r.product else '-'),
+        'quantity': r.quantity,
+        'condition': r.condition,
+        'condition_display': r.get_condition_display(),
+        'notes': r.notes or '',
+        'received_by': (r.received_by.get_full_name() or r.received_by.username) if r.received_by else '',
+        'url': f'/orders/{r.purchase_order_id}/' if r.purchase_order_id else '',
+    } for r in qs]
+    return JsonResponse({'rows': rows, 'count': len(rows)})
+
+# ---------------------------------------------------------------------------
+# User management (admin only)
+# ---------------------------------------------------------------------------
+
+def _serialize_user(u):
+    return {
+        'id': u.id,
+        'username': u.username,
+        'email': u.email or '',
+        'role': u.role,
+        'role_display': 'Superadmin' if u.is_superuser else u.get_role_display(),
+        'is_active': u.is_active,
+        'is_superuser': u.is_superuser,
+        'last_login': u.last_login.strftime('%Y-%m-%d %H:%M') if u.last_login else '',
+        'permissions': {k: bool((u.permissions or {}).get(k, DEFAULT_STAFF_PERMISSIONS.get(k, False)))
+                        for k in ALL_PERMISSION_KEYS},
+    }
+
+
+@login_required
+@admin_required
+def users_view(request):
+    """Users management page - admin only."""
+    users = User.objects.all().order_by('username')
+    return render(request, 'users.html', {
+        'users': users,
+        'users_data': {u.id: _serialize_user(u) for u in users},
+        'permission_groups': PERMISSION_GROUPS,
+        'default_permissions': DEFAULT_STAFF_PERMISSIONS,
+    })
+
+
+@csrf_exempt
+@login_required
+@admin_required
+def users_api(request):
+    """API for user management: create / update (role+perms+active) / set_password."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON data'}, status=400)
+
+    action = data.get('action')
+
+    if action == 'create':
+        username = (data.get('username') or '').strip()
+        password = data.get('password') or ''
+        role = data.get('role') or User.Role.STAFF
+        if not username:
+            return JsonResponse({'success': False, 'message': 'Username is required'}, status=400)
+        if User.objects.filter(username=username).exists():
+            return JsonResponse({'success': False, 'message': 'Username already exists'}, status=400)
+        if role not in dict(User.Role.choices):
+            return JsonResponse({'success': False, 'message': 'Invalid role'}, status=400)
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            return JsonResponse({'success': False, 'message': ' '.join(e.messages)}, status=400)
+        perms = _clean_permissions(data.get('permissions'), role)
+        user = User.objects.create_user(
+            username=username,
+            password=password,
+            email=(data.get('email') or '').strip(),
+            role=role,
+            permissions=perms,
+        )
+        return JsonResponse({'success': True, 'message': f'User "{username}" created', 'user': _serialize_user(user)})
+
+    user_id = data.get('user_id')
+    target = User.objects.filter(id=user_id).first() if user_id else None
+    if not target:
+        return JsonResponse({'success': False, 'message': 'User not found'}, status=404)
+
+    if action == 'update':
+        if target.id == request.user.id:
+            return JsonResponse({'success': False, 'message': 'You cannot change your own role or permissions'}, status=400)
+        if target.is_superuser:
+            return JsonResponse({'success': False, 'message': 'Superuser account cannot be modified'}, status=400)
+        role = data.get('role') or target.role
+        if role not in dict(User.Role.choices):
+            return JsonResponse({'success': False, 'message': 'Invalid role'}, status=400)
+        target.role = role
+        target.is_active = bool(data.get('is_active', target.is_active))
+        target.permissions = _clean_permissions(data.get('permissions'), role)
+        target.save()
+        return JsonResponse({'success': True, 'message': f'User "{target.username}" updated', 'user': _serialize_user(target)})
+
+    if action == 'set_password':
+        if target.id == request.user.id:
+            return JsonResponse({'success': False, 'message': 'Use Change Password to update your own password'}, status=400)
+        if target.is_superuser:
+            return JsonResponse({'success': False, 'message': 'Superuser account cannot be modified'}, status=400)
+        password = data.get('password') or ''
+        try:
+            validate_password(password, user=target)
+        except ValidationError as e:
+            return JsonResponse({'success': False, 'message': ' '.join(e.messages)}, status=400)
+        target.set_password(password)
+        target.save()
+        return JsonResponse({'success': True, 'message': f'Password updated for "{target.username}"'})
+
+    return JsonResponse({'success': False, 'message': 'Invalid action'}, status=400)
+
+
+def _clean_permissions(raw, role):
+    """Normalize the permissions dict sent from the permission matrix.
+
+    Admin users do not need stored perms (they always pass user_can),
+    but keep the dict anyway so demoting them later is predictable.
+    """
+    raw = raw or {}
+    return {key: bool(raw.get(key, DEFAULT_STAFF_PERMISSIONS.get(key, False)))
+            for key in ALL_PERMISSION_KEYS}

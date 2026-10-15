@@ -32,6 +32,7 @@
                                 <hr>
                                 
                                 <!-- Add Customer Section -->
+                                {% if perms.customers_manage %}
                                 <div class="row mb-4">
                                     <div class="col-md-12">
                                         <div class="card">
@@ -53,6 +54,7 @@
                                         </div>
                                     </div>
                                 </div>
+                                {% endif %}
 
                                 <!-- Customers Table -->
                                 <div class="row">
@@ -92,6 +94,7 @@
 </div>
 
 <!-- Edit Customer Modal -->
+{% if perms.customers_manage %}
 <div class="modal fade" id="editCustomerModal" tabindex="-1" role="dialog" aria-labelledby="editCustomerModalLabel" aria-hidden="true">
     <div class="modal-dialog" role="document">
         <div class="modal-content">
@@ -138,7 +141,10 @@
     </div>
 </div>
 
+{% endif %}
+
 <!-- Delete Confirmation Modal -->
+{% if perms.customers_manage %}
 <div class="modal fade" id="deleteCustomerModal" tabindex="-1" role="dialog" aria-labelledby="deleteCustomerModalLabel" aria-hidden="true">
     <div class="modal-dialog" role="document">
         <div class="modal-content">
@@ -160,10 +166,13 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 {% include "includes/footer.html" %}
 
+{{ perms|json_script:"perms-data" }}
 <script>
+var PERMS = JSON.parse(document.getElementById('perms-data').textContent);
 $(document).ready(function() {
     loadCustomers();
 
@@ -332,12 +341,13 @@ function loadCustomers() {
                             <a href="/customer/${customer.id}/cart/" class="btn btn-sm btn-info" title="View Cart">
                                 <i class="fa fa-shopping-cart"></i> View Cart
                             </a>
+                            ${PERMS.customers_manage ? `
                             <button class="btn btn-sm btn-warning edit-customer" data-id="${customer.id}" data-name="${customer.name}" data-company_name="${customer.company_name || ''}" data-contact_person="${customer.contact_person || ''}" data-address="${customer.address || ''}" data-phone="${customer.phone || ''}" data-email="${customer.email || ''}" title="Edit Customer">
                                 <i class="fa fa-edit"></i>
                             </button>
                             <button class="btn btn-sm btn-danger delete-customer" data-id="${customer.id}" data-name="${customer.name}" title="Delete Customer">
                                 <i class="fa fa-trash"></i>
-                            </button>
+                            </button>` : ''}
                         </td>
                     </tr>
                 `;

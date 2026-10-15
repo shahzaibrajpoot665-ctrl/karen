@@ -1,7 +1,13 @@
 from django.urls import path,include
+from django.views.generic import RedirectView
 from . import views
 urlpatterns = [
-    path('',views.form_view, name='form'),
+    path('',views.dashboard_view, name='dashboard'),
+    path('products/',views.form_view, name='form'),
+    path('dashboard/', RedirectView.as_view(pattern_name='dashboard', permanent=False)),
+    # Users management (admin only)
+    path('users/', views.users_view, name='users'),
+    path('api/users/', views.users_api, name='users_api'),
     path('product_detail/<int:id>/',views.product_detail, name='product_detail'),
 
     path('single_product/',views.single_product, name='single_product'),
@@ -50,4 +56,28 @@ urlpatterns = [
     path('api/cart-android/product-quantity/', views.product_quantity_in_locked_carts, name='product_quantity_in_locked_carts'),
     path('api/customer/<int:customer_id>/cart-android/', views.cart_android_api, name='cart_android_api'),
     path('api/price-setting/', views.price_setting_api, name='price_setting_api'),
+
+    # Quotation Management URLs
+    path('quotations/', views.quotation_list_view, name='quotation_list'),
+    path('quotations/<int:quotation_id>/', views.quotation_detail_view, name='quotation_detail'),
+    path('quotations/<int:quotation_id>/print/', views.quotation_print_view, name='quotation_print'),
+    path('api/quotations/', views.quotation_list_api, name='quotation_list_api'),
+    path('api/quotations/<int:quotation_id>/', views.quotation_api, name='quotation_api'),
+    path('api/customer/<int:customer_id>/cart/quotation/', views.create_quotation_from_cart, name='create_quotation_from_cart'),
+    path('api/quotations/<int:quotation_id>/follow-ups/', views.follow_up_api, name='follow_up_api'),
+    path('api/follow-ups/<int:follow_up_id>/', views.follow_up_detail_api, name='follow_up_detail_api'),
+    # Orders / Purchase Orders URLs
+    path('orders/', views.order_list_view, name='order_list'),
+    path('orders/<int:order_id>/', views.order_detail_view, name='order_detail'),
+    path('orders/<int:order_id>/print/', views.order_print_view, name='order_print'),
+    path('api/orders/', views.order_list_api, name='order_list_api'),
+    path('api/orders/<int:order_id>/', views.order_api, name='order_api'),
+    path('api/orders/<int:order_id>/receive/', views.order_receive_api, name='order_receive_api'),
+    path('api/quotations/<int:quotation_id>/open-po/', views.create_order_from_quotation, name='create_order_from_quotation'),
+    # Dashboard, Notifications & Reports
+    path('notifications/', views.notifications_view, name='notifications_page'),
+    path('api/notifications/', views.notifications_api, name='notifications_api'),
+    path('api/notifications/send-line/', views.send_line_notification, name='send_line_notification'),
+    path('reports/', views.reports_view, name='reports'),
+    path('api/reports/<str:report_type>/', views.reports_api, name='reports_api'),
 ]

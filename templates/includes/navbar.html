@@ -4,7 +4,7 @@
         <!-- This is for the sidebar toggle which is visible on mobile only -->
         <a class="nav-toggler waves-effect waves-light d-block d-md-none" href="javascript:void(0)"><i class="ti-menu ti-close"></i></a>
         <!-- Logo -->
-        <a class="navbar-brand" href="{% url "form" %}">
+        <a class="navbar-brand" href="{% url "dashboard" %}">
             <!-- Logo icon -->
             <span class="logo-glow m-2">
                 <img src="{% static 'assets/images/transparent logo.png' %}" alt="Karen logo" class="logo-img" />
@@ -20,6 +20,22 @@
         <ul class="navbar-nav float-left mr-auto">
         </ul>
         <ul class="navbar-nav float-right">
+            <!-- Notifications bell -->
+            {% if perms.notifications %}
+            <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle waves-effect waves-dark" href="" id="notifBell" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="position:relative;">
+                    <i class="mdi mdi-bell font-20"></i>
+                    <span class="badge badge-danger" id="notifBadge" style="display:none; position:absolute; top:4px; right:0; font-size:10px; padding:2px 5px;">0</span>
+                </a>
+                <div class="dropdown-menu dropdown-menu-right animated bounceInDown" style="min-width:340px; padding:0;">
+                    <div class="bg-primary text-white p-2"><strong><i class="mdi mdi-bell-ring"></i> Notifications</strong></div>
+                    <div id="notifList" style="max-height:340px; overflow-y:auto;">
+                        <a class="dropdown-item text-muted" href="javascript:void(0)">Loading...</a>
+                    </div>
+                    <a class="dropdown-item text-center border-top" href="/notifications/" style="font-weight:600;">View all notifications</a>
+                </div>
+            </li>
+            {% endif %}
             <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle text-muted waves-effect waves-dark pro-pic" href="" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"><img src="{% static 'assets/images/users/1.jpg' %}" alt="user" class="rounded-circle" width="31"></a>
                 <div class="dropdown-menu dropdown-menu-right user-dd animated flipInY">

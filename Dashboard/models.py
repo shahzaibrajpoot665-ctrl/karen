@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.utils import timezone
 from decimal import Decimal
 
 
@@ -26,7 +27,13 @@ def compute_bi(base, increment):
 
 # Create your models here.
 class User(AbstractUser):
+    class Role(models.TextChoices):
+        ADMIN = 'admin', 'Admin'
+        STAFF = 'staff', 'Staff'
+
     email = models.EmailField(blank=True, null=True)
+    role = models.CharField(max_length=10, choices=Role.choices, default=Role.STAFF)
+    permissions = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return self.username
@@ -66,7 +73,9 @@ class ProductImageLink(models.Model):
 
 class Product(models.Model):
     parent_code = models.CharField(max_length=255)
-    child_code = models.CharField(max_length=255)
+    # child_code doubles as the SKU: QR/barcode images are generated from it
+    # and scanning/lookups (single_product?code=) resolve a product through it.
+    child_code = models.CharField(max_length=255, db_index=True)
     location = models.CharField(max_length=255)
     stock = models.CharField(max_length=255, null=True, blank=True)
     kpo = models.CharField(max_length=255, null=True, blank=True)
@@ -202,3 +211,166 @@ class GoogleSheetConfig(models.Model):
     def get_singleton(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+# ==============================================================
+# Quotation -> Purchase Order -> Receiving foundation
+# ==============================================================
+
+class Quotation(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        SENT = 'sent', 'Sent'
+        ACCEPTED = 'accepted', 'Accepted'
+        REJECTED = 'rejected', 'Rejected'
+
+    quotation_number = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='quotations')
+    cart = models.ForeignKey(Cart, on_delete=models.SET_NULL, null=True, blank=True, related_name='quotations')
+    quotation_date = models.DateField(null=True, blank=True)
+    validity_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.DRAFT)
+    currency = models.CharField(max_length=8, default='THB')
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    terms_conditions = models.TextField(null=True, blank=True)
+    remarks = models.TextField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_quotations')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return self.quotation_number or f"Quotation #{self.id}"
+
+
+class QuotationItem(models.Model):
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name='quotation_items')
+    source_cart_item = models.ForeignKey(CartItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='quotation_items')
+    product_code = models.CharField(max_length=255, blank=True, default='')
+    description = models.TextField(null=True, blank=True)
+    quantity = models.PositiveIntegerField(default=1)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    line_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    note = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.quantity}x {self.product_code or self.product_id}"
+
+
+class QuotationDocument(models.Model):
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='documents')
+    file = models.FileField(upload_to='quotation_documents/')
+    name = models.CharField(max_length=255, blank=True, default='')
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='uploaded_quotation_documents')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name or self.file.name
+
+
+class QuotationFollowUp(models.Model):
+    class Channel(models.TextChoices):
+        CALL = 'call', 'Call'
+        LINE = 'line', 'LINE'
+        EMAIL = 'email', 'Email'
+        MEETING = 'meeting', 'Meeting'
+        OTHER = 'other', 'Other'
+
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='follow_ups')
+    follow_up_at = models.DateTimeField(null=True, blank=True)
+    channel = models.CharField(max_length=32, choices=Channel.choices, default=Channel.CALL)
+    notes = models.TextField(null=True, blank=True)
+    is_done = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    proof = models.FileField(upload_to='followup_proofs/', null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_follow_ups')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['follow_up_at']
+        indexes = [
+            models.Index(fields=['follow_up_at', 'is_done']),
+        ]
+
+    def __str__(self):
+        return f"Follow-up for {self.quotation} at {self.follow_up_at}"
+
+
+class PurchaseOrder(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        ORDERED = 'ordered', 'Ordered'
+        PARTIALLY_RECEIVED = 'partially_received', 'Partially Received'
+        RECEIVED = 'received', 'Received'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    po_number = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    quotation = models.ForeignKey(Quotation, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchase_orders')
+    order_date = models.DateField(null=True, blank=True)
+    expected_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.DRAFT)
+    remarks = models.TextField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_purchase_orders')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+        ]
+
+    @property
+    def customer(self):
+        return self.quotation.customer if self.quotation_id else None
+
+    def __str__(self):
+        return self.po_number or f"PO #{self.id}"
+
+
+class PurchaseOrderItem(models.Model):
+    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchase_order_items')
+    quotation_item = models.ForeignKey(QuotationItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='order_items')
+    product_code = models.CharField(max_length=255, blank=True, default='')
+    description = models.TextField(null=True, blank=True)
+    ordered_quantity = models.PositiveIntegerField(default=1)
+    received_quantity = models.PositiveIntegerField(default=0)
+    note = models.TextField(null=True, blank=True)
+
+    @property
+    def remaining_quantity(self):
+        return max(self.ordered_quantity - self.received_quantity, 0)
+
+    def __str__(self):
+        return f"{self.ordered_quantity}x {self.product_code or self.product_id}"
+
+
+class ReceivingRecord(models.Model):
+    class Condition(models.TextChoices):
+        GOOD = 'good', 'Good'
+        DAMAGED = 'damaged', 'Damaged'
+
+    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='receiving_records')
+    order_item = models.ForeignKey(PurchaseOrderItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='receiving_records')
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name='receiving_records')
+    product_code = models.CharField(max_length=255, blank=True, default='')
+    quantity = models.PositiveIntegerField(default=0)
+    condition = models.CharField(max_length=32, choices=Condition.choices, default=Condition.GOOD)
+    notes = models.TextField(null=True, blank=True)
+    photo = models.ImageField(upload_to='receiving_photos/', null=True, blank=True)
+    received_at = models.DateTimeField(default=timezone.now)
+    received_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='receiving_records')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-received_at']
+
+    def __str__(self):
+        return f"Received {self.quantity}x {self.product_code or self.product_id} for {self.purchase_order}"

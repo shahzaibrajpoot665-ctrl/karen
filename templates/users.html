@@ -1,0 +1,365 @@
+{% load static %}
+{% include "includes/head.html" %}
+
+<div class="preloader">
+    <div class="lds-ripple">
+        <div class="lds-pos"></div>
+        <div class="lds-pos"></div>
+    </div>
+</div>
+<div id="main-wrapper">
+    <header class="topbar">
+        {% include "includes/navbar.html" %}
+    </header>
+    {% include "includes/aside.html" %}
+
+    <div class="page-wrapper">
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h4 class="card-title mb-0">Users</h4>
+                                <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#createUserModal">
+                                    <i class="mdi mdi-plus"></i> New User
+                                </button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Username</th>
+                                            <th>Email</th>
+                                            <th>Role</th>
+                                            <th>Status</th>
+                                            <th>Last Login</th>
+                                            <th class="text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for u in users %}
+                                        <tr>
+                                            <td><strong>{{ u.username }}</strong>{% if u.id == request.user.id %} <span class="badge badge-light">you</span>{% endif %}</td>
+                                            <td>{{ u.email|default:'-' }}</td>
+                                            <td>
+                                                {% if u.is_superuser %}
+                                                    <span class="badge badge-dark">Superadmin</span>
+                                                {% elif u.role == 'admin' %}
+                                                    <span class="badge badge-primary">Admin</span>
+                                                {% else %}
+                                                    <span class="badge badge-info">Staff</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if u.is_active %}
+                                                    <span class="badge badge-success">Active</span>
+                                                {% else %}
+                                                    <span class="badge badge-secondary">Inactive</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ u.last_login|date:'Y-m-d H:i'|default:'Never' }}</td>
+                                            <td class="text-right">
+                                                {% if not u.is_superuser and u.id != request.user.id %}
+                                                <button type="button" class="btn btn-sm btn-outline-primary edit-user-btn" data-user-id="{{ u.id }}">
+                                                    <i class="mdi mdi-pencil"></i> Edit
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary password-user-btn" data-user-id="{{ u.id }}" data-username="{{ u.username }}">
+                                                    <i class="mdi mdi-key"></i> Password
+                                                </button>
+                                                {% else %}
+                                                <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal fade" id="createUserModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">New User</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>Username <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createUsername" autocomplete="off">
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Email</label>
+                        <input type="email" class="form-control" id="createEmail">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>Password <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="createPassword" autocomplete="new-password">
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Confirm Password <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="createPassword2" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Role</label>
+                    <select class="form-control" id="createRole">
+                        <option value="staff" selected>Staff</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                    <small class="form-text text-muted">Admins can manage users and have all permissions. Staff access is controlled by the permission matrix below.</small>
+                </div>
+                <div id="createPermsSection">
+                    <label>Access Permissions</label>
+                    <small class="form-text text-muted">Unchecked boxes mean no access — the user is denied on both the pages and the APIs.</small>
+                    {% for group, perms in permission_groups %}
+                    <div class="mb-2">
+                        <strong class="text-muted" style="font-size: 12px; text-transform: uppercase;">{{ group }}</strong>
+                        <div class="row">
+                            {% for key, label in perms %}
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input create-perm" id="cp-{{ key }}" data-key="{{ key }}">
+                                    <label class="custom-control-label" for="cp-{{ key }}">{{ label }}</label>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createUserBtn">Create User</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit User — <span id="editUsernameLabel"></span></h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editUserId">
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>Role</label>
+                        <select class="form-control" id="editRole">
+                            <option value="staff">Staff</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Status</label>
+                        <div class="custom-control custom-switch mt-2">
+                            <input type="checkbox" class="custom-control-input" id="editActive">
+                            <label class="custom-control-label" for="editActive">Active (can log in)</label>
+                        </div>
+                    </div>
+                </div>
+                <div id="editPermsSection">
+                    <label>Access Permissions</label>
+                    {% for group, perms in permission_groups %}
+                    <div class="mb-2">
+                        <strong class="text-muted" style="font-size: 12px; text-transform: uppercase;">{{ group }}</strong>
+                        <div class="row">
+                            {% for key, label in perms %}
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input edit-perm" id="ep-{{ key }}" data-key="{{ key }}">
+                                    <label class="custom-control-label" for="ep-{{ key }}">{{ label }}</label>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveUserBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Set Password Modal -->
+<div class="modal fade" id="passwordModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Set Password — <span id="pwUsernameLabel"></span></h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="pwUserId">
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input type="password" class="form-control" id="pwPassword" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label>Confirm Password</label>
+                    <input type="password" class="form-control" id="pwPassword2" autocomplete="new-password">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="savePasswordBtn">Update Password</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% include "includes/footer.html" %}
+
+{{ users_data|json_script:'users-data' }}
+{{ default_permissions|json_script:'default-perms-data' }}
+
+<script>
+var USERS = JSON.parse(document.getElementById('users-data').textContent);
+var DEFAULT_PERMS = JSON.parse(document.getElementById('default-perms-data').textContent);
+
+function getCookie(name) {
+    var value = '; ' + document.cookie;
+    var parts = value.split('; ' + name + '=');
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+}
+
+function collectPerms(cls) {
+    var perms = {};
+    $('.' + cls).each(function () {
+        perms[$(this).data('key')] = $(this).is(':checked');
+    });
+    return perms;
+}
+
+function setPerms(cls, perms) {
+    $('.' + cls).each(function () {
+        var key = $(this).data('key');
+        $(this).prop('checked', perms.hasOwnProperty(key) ? perms[key] : false);
+    });
+}
+
+function togglePermSection(roleSel, sectionSel) {
+    $(sectionSel).toggle($(roleSel).val() !== 'admin');
+}
+
+function apiPost(payload, onSuccess) {
+    $.ajax({
+        url: '/api/users/',
+        method: 'POST',
+        contentType: 'application/json',
+        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        data: JSON.stringify(payload),
+        success: function (resp) {
+            if (resp.success) {
+                onSuccess(resp);
+            } else {
+                alert(resp.message || 'Operation failed');
+            }
+        },
+        error: function (xhr) {
+            var msg = 'Operation failed';
+            try { msg = JSON.parse(xhr.responseText).message || msg; } catch (e) {}
+            alert(msg);
+        }
+    });
+}
+
+$(document).ready(function () {
+    // --- Create ---
+    $('#createUserModal').on('show.bs.modal', function () {
+        $('#createUsername, #createEmail, #createPassword, #createPassword2').val('');
+        $('#createRole').val('staff');
+        setPerms('create-perm', DEFAULT_PERMS);
+        togglePermSection('#createRole', '#createPermsSection');
+    });
+    $('#createRole').on('change', function () {
+        togglePermSection('#createRole', '#createPermsSection');
+    });
+    $('#createUserBtn').on('click', function () {
+        var username = $('#createUsername').val().trim();
+        var p1 = $('#createPassword').val();
+        var p2 = $('#createPassword2').val();
+        if (!username) { alert('Username is required'); return; }
+        if (!p1) { alert('Password is required'); return; }
+        if (p1 !== p2) { alert('Passwords do not match'); return; }
+        apiPost({
+            action: 'create',
+            username: username,
+            email: $('#createEmail').val().trim(),
+            password: p1,
+            role: $('#createRole').val(),
+            permissions: collectPerms('create-perm')
+        }, function () { location.reload(); });
+    });
+
+    // --- Edit ---
+    $('.edit-user-btn').on('click', function () {
+        var id = $(this).data('user-id');
+        var u = USERS[id];
+        if (!u) return;
+        $('#editUserId').val(id);
+        $('#editUsernameLabel').text(u.username);
+        $('#editRole').val(u.role);
+        $('#editActive').prop('checked', u.is_active);
+        setPerms('edit-perm', u.permissions);
+        togglePermSection('#editRole', '#editPermsSection');
+        $('#editUserModal').modal('show');
+    });
+    $('#editRole').on('change', function () {
+        togglePermSection('#editRole', '#editPermsSection');
+    });
+    $('#saveUserBtn').on('click', function () {
+        apiPost({
+            action: 'update',
+            user_id: $('#editUserId').val(),
+            role: $('#editRole').val(),
+            is_active: $('#editActive').is(':checked'),
+            permissions: collectPerms('edit-perm')
+        }, function () { location.reload(); });
+    });
+
+    // --- Password ---
+    $('.password-user-btn').on('click', function () {
+        $('#pwUserId').val($(this).data('user-id'));
+        $('#pwUsernameLabel').text($(this).data('username'));
+        $('#pwPassword, #pwPassword2').val('');
+        $('#passwordModal').modal('show');
+    });
+    $('#savePasswordBtn').on('click', function () {
+        var p1 = $('#pwPassword').val();
+        var p2 = $('#pwPassword2').val();
+        if (!p1) { alert('Password is required'); return; }
+        if (p1 !== p2) { alert('Passwords do not match'); return; }
+        apiPost({
+            action: 'set_password',
+            user_id: $('#pwUserId').val(),
+            password: p1
+        }, function (resp) {
+            $('#passwordModal').modal('hide');
+            alert(resp.message);
+        });
+    });
+});
+</script>

@@ -16,3 +16,11 @@
 @media (max-width: 576px) {
   .navbar-brand .logo-img { max-height: 36px; height: 36px; }
 }
+
+/* Sidebar active-state highlighting */
+#sidebarnav .sidebar-item .sidebar-link.active,
+#sidebarnav > .sidebar-item.selected > .sidebar-link {
+  background: #7e7e7e1f;
+  opacity: 1;
+  border-radius: 4px;
+}

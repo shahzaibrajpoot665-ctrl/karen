@@ -6,17 +6,102 @@
         <nav class="sidebar-nav">
             <ul id="sidebarnav">
                 <!-- Dashboard -->
-                {% comment %} <li class="sidebar-item"> <a class="sidebar-link waves-effect waves-dark" href="{% url "index" %}" aria-expanded="false"><i class="mdi mdi-view-dashboard"></i><span class="hide-menu">Dashboard </span></a>
-                </li> {% endcomment %}
-                <li class="sidebar-item"> 
-                    <a class="sidebar-link two-column waves-effect waves-dark" href="{% url "form" %}" aria-expanded="false"><i class="mdi mdi-package-variant-closed"></i><span class="hide-menu">Product </span></a>
-                </li>
+                {% if perms.dashboard %}
                 <li class="sidebar-item">
-                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'cart_management' %}" aria-expanded="false">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'dashboard' %}" aria-expanded="false">
+                        <i class="mdi mdi-view-dashboard"></i>
+                        <span class="hide-menu">Dashboard</span>
+                    </a>
+                </li>
+                {% endif %}
+                {% if perms.products %}
+                <li class="sidebar-item"> 
+                    <a class="sidebar-link has-arrow waves-effect waves-dark" href="javascript:void(0)" aria-expanded="false" data-match="/product_detail/"><i class="mdi mdi-package-variant-closed"></i><span class="hide-menu">Product </span></a>
+                    <ul aria-expanded="false" class="collapse first-level">
+                        <li class="sidebar-item">
+                            <a href="{% url 'form' %}#navpills-5" class="sidebar-link"><i class="mdi mdi-circle-outline"></i><span class="hide-menu">All Products</span></a>
+                        </li>
+                        {% if perms.products_edit %}
+                        <li class="sidebar-item">
+                            <a href="{% url 'form' %}#navpills-1" class="sidebar-link"><i class="mdi mdi-circle-outline"></i><span class="hide-menu">Add Product</span></a>
+                        </li>
+                        {% endif %}
+                        {% if perms.products_import %}
+                        <li class="sidebar-item">
+                            <a href="{% url 'form' %}#navpills-2" class="sidebar-link"><i class="mdi mdi-circle-outline"></i><span class="hide-menu">Import</span></a>
+                        </li>
+                        {% endif %}
+                        {% if perms.products_images %}
+                        <li class="sidebar-item">
+                            <a href="{% url 'form' %}#navpills-3" class="sidebar-link"><i class="mdi mdi-circle-outline"></i><span class="hide-menu">Upload Images</span></a>
+                        </li>
+                        {% endif %}
+                        {% if perms.products_price %}
+                        <li class="sidebar-item">
+                            <a href="{% url 'form' %}#navpills-4" class="sidebar-link"><i class="mdi mdi-circle-outline"></i><span class="hide-menu">Price Setting</span></a>
+                        </li>
+                        {% endif %}
+                        {% if perms.products_images %}
+                        <li class="sidebar-item">
+                            <a href="{% url 'image_management' %}" class="sidebar-link"><i class="mdi mdi-circle-outline"></i><span class="hide-menu">Manage Images</span></a>
+                        </li>
+                        {% endif %}
+                        {% if perms.products_pairing %}
+                        <li class="sidebar-item">
+                            <a href="{% url 'pairing_set' %}" class="sidebar-link"><i class="mdi mdi-circle-outline"></i><span class="hide-menu">Pairing Set</span></a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </li>
+                {% endif %}
+                {% if perms.quotations %}
+                <li class="sidebar-item">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'quotation_list' %}" aria-expanded="false" data-match="/quotation">
+                        <i class="mdi mdi-file-document"></i>
+                        <span class="hide-menu">Quotations</span>
+                    </a>
+                </li>
+                {% endif %}
+                {% if perms.orders %}
+                <li class="sidebar-item">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'order_list' %}" aria-expanded="false" data-match="/order">
+                        <i class="mdi mdi-clipboard-text"></i>
+                        <span class="hide-menu">Orders</span>
+                    </a>
+                </li>
+                {% endif %}
+                {% if perms.cart %}
+                <li class="sidebar-item">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'cart_management' %}" aria-expanded="false" data-match="/customer/">
                         <i class="mdi mdi-cart"></i>
                         <span class="hide-menu">Cart Management</span>
                     </a>
                 </li>
+                {% endif %}
+                {% if perms.notifications %}
+                <li class="sidebar-item">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'notifications_page' %}" aria-expanded="false" data-match="/notifications">
+                        <i class="mdi mdi-bell"></i>
+                        <span class="hide-menu">Notifications</span>
+                    </a>
+                </li>
+                {% endif %}
+                {% if perms.reports %}
+                <li class="sidebar-item">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'reports' %}" aria-expanded="false" data-match="/reports">
+                        <i class="mdi mdi-chart-bar"></i>
+                        <span class="hide-menu">Reports</span>
+                    </a>
+                </li>
+                {% endif %}
+                {% if perms.is_admin %}
+                <li class="sidebar-item">
+                    <a class="sidebar-link waves-effect waves-dark" href="{% url 'users' %}" aria-expanded="false" data-match="/users">
+                        <i class="mdi mdi-account-multiple"></i>
+                        <span class="hide-menu">Users</span>
+                    </a>
+                </li>
+                {% endif %}
             </ul>
         </nav>
         <!-- End Sidebar navigation -->

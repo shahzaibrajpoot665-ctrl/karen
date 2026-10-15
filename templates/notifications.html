@@ -1,0 +1,198 @@
+{% load static %}
+{% include "includes/head.html" %}
+
+<!-- Preloader - style you can find in spinners.css -->
+<div class="preloader">
+    <div class="lds-ripple">
+        <div class="lds-pos"></div>
+        <div class="lds-pos"></div>
+    </div>
+</div>
+<!-- Main wrapper - style you can find in pages.scss -->
+<div id="main-wrapper">
+    <!-- Topbar header - style you can find in pages.scss -->
+    <header class="topbar">
+        {% include "includes/navbar.html" %}
+    </header>
+    <!-- End Topbar header -->
+    {% include "includes/aside.html" %}
+    <!-- End Left Sidebar - style you can find in sidebar.scss  -->
+
+    <!-- Page wrapper  -->
+    <div class="page-wrapper">
+        <!-- Container fluid  -->
+        <div class="container-fluid">
+            <!-- Start Page Content -->
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="form-body">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h4 class="card-title mt-2"><i class="mdi mdi-bell"></i> Notifications &amp; Reminders</h4>
+                                    <div>
+                                        {% if line_configured %}
+                                        <button type="button" id="sendLineBtn" class="btn btn-success btn-sm">
+                                            <i class="mdi mdi-send"></i> Send LINE Reminder
+                                        </button>
+                                        {% else %}
+                                        <span class="badge badge-secondary" title="Set LINE_CHANNEL_ACCESS_TOKEN and LINE_TARGET_ID to enable LINE push notifications">
+                                            <i class="mdi mdi-information-outline"></i> LINE not configured
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <hr>
+
+                                <!-- Follow-Ups -->
+                                {% if perms.quotations %}
+                                <h5 class="mt-2"><i class="mdi mdi-phone-forward"></i> Quotation Follow-Ups</h5>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="card border-danger">
+                                            <div class="card-header bg-danger text-white"><strong>Overdue ({{ groups.follow_ups.overdue|length }})</strong></div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    {% for f in groups.follow_ups.overdue %}
+                                                    <li class="list-group-item">
+                                                        <a href="{{ f.url }}"><strong>{{ f.quotation_number }}</strong></a> — {{ f.customer_name }}
+                                                        <div class="small text-muted">{{ f.channel }} · was due {{ f.follow_up_at }}</div>
+                                                        {% if f.notes %}<div class="small">{{ f.notes|truncatechars:80 }}</div>{% endif %}
+                                                    </li>
+                                                    {% empty %}<li class="list-group-item text-muted">None</li>{% endfor %}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card border-warning">
+                                            <div class="card-header bg-warning"><strong>Due Today ({{ groups.follow_ups.due_today|length }})</strong></div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    {% for f in groups.follow_ups.due_today %}
+                                                    <li class="list-group-item">
+                                                        <a href="{{ f.url }}"><strong>{{ f.quotation_number }}</strong></a> — {{ f.customer_name }}
+                                                        <div class="small text-muted">{{ f.channel }} · {{ f.follow_up_at }}</div>
+                                                        {% if f.notes %}<div class="small">{{ f.notes|truncatechars:80 }}</div>{% endif %}
+                                                    </li>
+                                                    {% empty %}<li class="list-group-item text-muted">None</li>{% endfor %}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card border-info">
+                                            <div class="card-header bg-info text-white"><strong>Upcoming - next 7 days ({{ groups.follow_ups.upcoming|length }})</strong></div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    {% for f in groups.follow_ups.upcoming %}
+                                                    <li class="list-group-item">
+                                                        <a href="{{ f.url }}"><strong>{{ f.quotation_number }}</strong></a> — {{ f.customer_name }}
+                                                        <div class="small text-muted">{{ f.channel }} · {{ f.follow_up_at }}</div>
+                                                    </li>
+                                                    {% empty %}<li class="list-group-item text-muted">None</li>{% endfor %}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+
+                                <!-- Orders -->
+                                {% if perms.orders %}
+                                <h5 class="mt-4"><i class="mdi mdi-clipboard-text"></i> Orders / Purchase Orders</h5>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="card border-danger">
+                                            <div class="card-header bg-danger text-white"><strong>Overdue ({{ groups.orders.overdue|length }})</strong></div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    {% for o in groups.orders.overdue %}
+                                                    <li class="list-group-item">
+                                                        <a href="{{ o.url }}"><strong>{{ o.po_number }}</strong></a> — {{ o.customer_name }}
+                                                        <div class="small text-muted">Due {{ o.expected_date }} · {{ o.remaining_qty }} undelivered · {{ o.status_display }}</div>
+                                                    </li>
+                                                    {% empty %}<li class="list-group-item text-muted">None</li>{% endfor %}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card border-warning">
+                                            <div class="card-header bg-warning"><strong>Due Soon - next 3 days ({{ groups.orders.due_soon|length }})</strong></div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    {% for o in groups.orders.due_soon %}
+                                                    <li class="list-group-item">
+                                                        <a href="{{ o.url }}"><strong>{{ o.po_number }}</strong></a> — {{ o.customer_name }}
+                                                        <div class="small text-muted">Due {{ o.expected_date }} · {{ o.remaining_qty }} undelivered · {{ o.status_display }}</div>
+                                                    </li>
+                                                    {% empty %}<li class="list-group-item text-muted">None</li>{% endfor %}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="card border-secondary">
+                                            <div class="card-header bg-secondary text-white"><strong>Open / Incomplete ({{ groups.orders.open|length }})</strong></div>
+                                            <div class="card-body p-0">
+                                                <ul class="list-group list-group-flush">
+                                                    {% for o in groups.orders.open %}
+                                                    <li class="list-group-item">
+                                                        <a href="{{ o.url }}"><strong>{{ o.po_number }}</strong></a> — {{ o.customer_name }}
+                                                        <div class="small text-muted">Due {{ o.expected_date }} · {{ o.remaining_qty }} undelivered · {{ o.status_display }}</div>
+                                                    </li>
+                                                    {% empty %}<li class="list-group-item text-muted">None</li>{% endfor %}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% include "includes/footer.html" %}
+
+<script>
+$(document).ready(function() {
+    $('#sendLineBtn').click(function() {
+        var $btn = $(this).prop('disabled', true);
+        $.ajax({
+            url: '{% url "send_line_notification" %}',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            data: '{}',
+            success: function(resp) {
+                $btn.prop('disabled', false);
+                showMessage(resp.message || (resp.success ? 'Sent' : 'Not sent'), resp.success ? 'success' : 'error');
+            },
+            error: function() {
+                $btn.prop('disabled', false);
+                showMessage('Error sending LINE reminder', 'error');
+            }
+        });
+    });
+});
+
+function showMessage(message, type) {
+    var alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    var alertHtml =
+        '<div class="alert ' + alertClass + ' alert-dismissible fade show" role="alert">' +
+            message +
+            '<button type="button" class="close" data-dismiss="alert" aria-label="Close">' +
+                '<span aria-hidden="true">&times;</span>' +
+            '</button>' +
+        '</div>';
+    $('.alert').remove();
+    $('.card-body').first().prepend(alertHtml);
+    setTimeout(function() { $('.alert').fadeOut(); }, 5000);
+}
+</script>

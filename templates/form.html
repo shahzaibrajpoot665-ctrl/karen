@@ -27,25 +27,16 @@
                 <!-- Row -->
                 <div class="row">
                     <div class="col-lg-12">
-                        <div class="card">
+                        <div class="card" id="product-form-card">
                                 <div class="form-body">
                                     <div class="card-body">
-                                        <ul class="nav nav-pills m-t-30 m-b-30 d-flex align-items-center justify-content-between">
-                                            <div class="d-flex align-items-center">
-                                                <li class=" nav-item"> <a href="#navpills-1" class="nav-link active" data-toggle="tab" aria-expanded="false">Add Product</a> </li>
-                                                <li class="nav-item"> <a href="#navpills-2" class="nav-link" data-toggle="tab" aria-expanded="false">Import</a> </li>
-                                                <li class="nav-item"> <a href="#navpills-3" class="nav-link" data-toggle="tab" aria-expanded="false">Upload Images</a> </li>
-                                                <li class="nav-item"> <a href="#navpills-4" class="nav-link" data-toggle="tab" aria-expanded="false">Price Setting</a> </li>
-                                                <li class="nav-item"> <a href="{% url "image_management" %}" class="nav-link">Manage Images</a> </li>
-                                                <li class="nav-item"> <a href="{% url "pairing_set" %}" class="nav-link">Pairing Set</a> </li>
-                                            </div>
-                                            <li class="nav-item"><a href="{% url "export_excel" %}" class="btn btn-dark float-right">Export</a></li>
-                                        </ul>
-                                        <hr>
-                                        <h4 class="card-title mt-2"><i class="mdi mdi-package-variant-closed"></i> Product</h4>
+                                        <div class="d-flex align-items-center justify-content-between m-t-30 m-b-30">
+                                            <h4 class="card-title mb-0" id="product-section-title">Add Product</h4>
+                                        </div>
                                         <hr>
                                         <div class="tab-content br-n pn">    
                                             <a name='top'></a>
+                                            {% if perms.products_edit %}
                                             <form action="" method="POST" enctype="multipart/form-data" id="navpills-1" class="tab-pane active">
                                                 {% csrf_token %}
                                                 <div class="row mt-5">
@@ -191,6 +182,8 @@
                                                     </div>
                                                 </div>
                                             </form>
+                                            {% endif %}
+                                            {% if perms.products_import %}
                                             <form action="" method="POST" enctype="multipart/form-data" id="navpills-2" class="tab-pane">
                                                 {% csrf_token %}
                                                 <ul class="nav nav-tabs mb-3" id="importSubTabs" role="tablist">
@@ -268,6 +261,8 @@
                                                     </div>
                                                 </div>
                                             </form>
+                                            {% endif %}
+                                            {% if perms.products_images %}
                                             <form action="{% url 'upload_bulk_images' %}" method="POST" enctype="multipart/form-data" id="navpills-3" class="tab-pane">
                                                 {% csrf_token %}
                                                 <div class="form-group">
@@ -293,7 +288,9 @@
                                                         <button type="button" class="btn btn-danger" onclick="clearDropzone()">Cancel</button>
                                                     </div>
                                                 </div>
-                                            </form>    
+                                            </form>
+                                            {% endif %}
+                                            {% if perms.products_price %}
                                             <div id="navpills-4" class="tab-pane">
                                                 <div class="row mt-4">
                                                     <div class="col-md-12">
@@ -327,19 +324,25 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            {% endif %}
                                         </div>
                                     </div>
                             </div>
                         </div>
 
-                        <div class="card" id="products-section">
+                        <div class="card" id="products-section" style="display:none;">
                             <div class="col-12">
                                 <div class="card-body">
                                     <div class="d-flex align-items-center justify-content-between">                                            
-                                        <h4 class="card-title">Products</h4>
+                                        <h4 class="card-title"><i class="mdi mdi-package-variant-closed"></i> Products</h4>
                                         <div class="d-flex align-items-center">
+                                            {% if perms.products_delete %}
                                             <button data-toggle="modal" data-target="#delete_all_products" onclick="delete_all_products()" class="btn btn-danger w-75 m-r-5">Delete Table</i></button>
+                                            {% endif %}
                                             <button class="btn btn-info m-r-5" onclick="toggleAdvancedSearch()">Advanced Search</button>
+                                            {% if perms.products_export %}
+                                            <a href="{% url "export_excel" %}" class="btn btn-dark m-r-5">Export</a>
+                                            {% endif %}
                                         </div>
                                     </div>
                                     
@@ -407,7 +410,9 @@
                                     <table class="table">
                                         <thead>
                                             <tr>
+                                                {% if perms.products_delete or perms.products_export %}
                                                 <th><input type="checkbox" id="select-all" onclick="selectAllCheckboxes(this)"></th>
+                                                {% endif %}
                                                 <th scope="col">Image</th>
                                                 <th scope="col">Parent Code</th>
                                                 <th scope="col">Child Code</th>
@@ -429,6 +434,7 @@
                             </div>
                         </div>
 
+                        {% if perms.products_delete %}
                         <div class="modal fade" id="delete_product" tabindex="-1" style="display: none;" role="dialog" aria-labelledby="prdoductdeleteCenterTitle" aria-hidden="true">
                             <div class="modal-dialog modal-dialog-centered" role="document">
                               <div class="modal-content">
@@ -456,6 +462,7 @@
                               </div>
                             </div>
                           </div>
+                        {% endif %}
 
                           <!-- Image Gallery Modal -->
                           <div class="modal fade" id="imageGalleryModal" tabindex="-1" role="dialog" aria-labelledby="imageGalleryModalLabel" aria-hidden="true">
@@ -489,6 +496,7 @@
                             </div>
                           </div>
 
+                          {% if perms.products_delete %}
                           <div class="modal fade" id="delete_all_products" tabindex="-1" style="display: none;" role="dialog" aria-labelledby="prdoductdeleteCenterTitle" aria-hidden="true">
                             <div class="modal-dialog modal-dialog-centered" role="document">
                               <div class="modal-content">
@@ -515,6 +523,7 @@
                               </div>
                             </div>
                           </div>
+                          {% endif %}
 
                           <div class="modal fade" id="productImportProgressModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="false">
                             <div class="modal-dialog modal-dialog-centered" role="document">
@@ -586,7 +595,9 @@
     <!-- End Wrapper -->
 
     <div class="chat-windows"></div>
+    {{ perms|json_script:"perms-data" }}
     <script>
+        var PERMS = JSON.parse(document.getElementById('perms-data').textContent);
         function delete_product(id){
           document.getElementById("id_for_delete_c").value = id;
         }
@@ -763,20 +774,50 @@
             });
     };
     $(document).ready(function(){
-        $('.nav-pills a').on('click', function(){
-            $('.nav-pills .nav-link').removeClass('active');
-            $(this).addClass('active');
-            var target = $(this).attr('href');
-            $('#navpills-1, #navpills-2, #navpills-3, #navpills-4').removeClass('show active');
-            $(target).addClass('show active');
-            
-            // Hide products section for Import and Upload Images tabs
-            var productsSection = document.getElementById('products-section');
-            if (target === '#navpills-2' || target === '#navpills-3') {
-                productsSection.style.display = 'none';
-            } else {
-                productsSection.style.display = 'block';
+        // Product sub-tabs are selected from the sidebar via URL hash
+        // (/#navpills-1..5). Show the matching pane and section name.
+        var PRODUCT_TABS = {
+            '#navpills-1': 'Add Product',
+            '#navpills-2': 'Import',
+            '#navpills-3': 'Upload Images',
+            '#navpills-4': 'Price Setting',
+            '#navpills-5': 'All Products'
+        };
+        // Which permission key each sub-tab requires (checked against PERMS
+        // so a staff member can't open a denied pane via a direct hash).
+        var TAB_PERMS = {
+            '#navpills-1': 'products_edit',
+            '#navpills-2': 'products_import',
+            '#navpills-3': 'products_images',
+            '#navpills-4': 'products_price',
+            '#navpills-5': 'products'
+        };
+        var ALLOWED_TABS = Object.keys(PRODUCT_TABS).filter(function (h) {
+            return PERMS[TAB_PERMS[h]];
+        });
+        function activateProductTab(hash) {
+            if (ALLOWED_TABS.indexOf(hash) === -1) {
+                hash = ALLOWED_TABS[0];
             }
+            var isAllProducts = (hash === '#navpills-5');
+            // All Products shows only the products section; every other
+            // sub-tab shows the form card and hides it.
+            var formCard = document.getElementById('product-form-card');
+            var productsSection = document.getElementById('products-section');
+            if (formCard) { formCard.style.display = isAllProducts ? 'none' : 'block'; }
+            if (productsSection) { productsSection.style.display = isAllProducts ? 'block' : 'none'; }
+
+            var title = PRODUCT_TABS[hash];
+            if (!title) { return; }
+            $('#navpills-1, #navpills-2, #navpills-3, #navpills-4').removeClass('show active');
+            if (!isAllProducts) {
+                $(hash).addClass('show active');
+            }
+            $('#product-section-title').text(title);
+        }
+        activateProductTab(window.location.hash || '#navpills-1');
+        $(window).on('hashchange', function(){
+            activateProductTab(window.location.hash);
         });
 
         let importPollTimer = null;
@@ -1314,6 +1355,7 @@
 
     function showclients(client_data) {
         $('#client-card').empty();
+        $('#delete-selected-btn, #export-selected-btn').remove();
         if (client_data.length > 0) {
             client_data.forEach(prod => {
                 let profile_url = `product_detail/${prod.id}`;
@@ -1336,10 +1378,16 @@
                     }
                 }
                 
+                var checkboxCell = (PERMS.products_delete || PERMS.products_export)
+                    ? `<td><input type="checkbox" class="select-checkbox" value="${prod.id}" onclick="toggleDeleteButton()"></td>` : '';
+                var editBtn = PERMS.products_edit
+                    ? `<a href="#top"><button class="btn btn-primary me-2" style="margin-right: 5px;" onclick="get_single_data('${prod.id}')"><i class="ti-pencil-alt"></i></button></a>` : '';
+                var delBtn = PERMS.products_delete
+                    ? `<button data-toggle="modal" data-target="#delete_product" onclick="delete_product('${prod.id}')" class="btn btn-danger"><i class="ti-trash" aria-hidden="true"></i></button>` : '';
                 $('#client-card').append(
                     `
                     <tr id="client-row-${prod.id}">
-                        <td><input type="checkbox" class="select-checkbox" value="${prod.id}" onclick="toggleDeleteButton()"></td>
+                        ${checkboxCell}
                         <td>${imageDisplay}</td>
                         <td>${prod.parent_code}</td>
                         <td>${prod.child_code}</td>
@@ -1351,18 +1399,24 @@
                             <td> 
                             <div class="d-flex">
                                 <a href="${profile_url}" style="margin-right: 5px;" class="btn btn-dark me-2"><i class="ti-eye"></i></a>
-                                <a href="#top"><button class="btn btn-primary me-2" style="margin-right: 5px;" onclick="get_single_data('${prod.id}')"><i class="ti-pencil-alt"></i></button></a>
-                                <button data-toggle="modal" data-target="#delete_product" onclick="delete_product('${prod.id}')" class="btn btn-danger"><i class="ti-trash" aria-hidden="true"></i></button>
+                                ${editBtn}
+                                ${delBtn}
                             </div>
                         </td>
                     </tr>
                     `
                 );
             });
-            $('#client-card').after(`
-            <button id="delete-selected-btn" class="btn btn-danger mt-3 d-none" onclick="deleteSelectedProducts()">Delete Selected</button>
-            <button id="export-selected-btn" class="btn btn-dark mt-3 d-none" onclick="exportSelectedProducts()">Export Selected</button>
-        `);
+            var bulkBtns = '';
+            if (PERMS.products_delete) {
+                bulkBtns += `<button id="delete-selected-btn" class="btn btn-danger mt-3 d-none" onclick="deleteSelectedProducts()">Delete Selected</button>`;
+            }
+            if (PERMS.products_export) {
+                bulkBtns += `<button id="export-selected-btn" class="btn btn-dark mt-3 d-none" onclick="exportSelectedProducts()">Export Selected</button>`;
+            }
+            if (bulkBtns) {
+                $('#client-card').after(bulkBtns);
+            }
         } else {
             $('#client-card').empty();
             $('#client-card').append(
@@ -1396,13 +1450,9 @@
         const selectedCheckboxes = document.querySelectorAll('.select-checkbox:checked');
         const deleteButton = document.getElementById('delete-selected-btn');
         const exportButton = document.getElementById('export-selected-btn');
-        if (selectedCheckboxes.length > 0) {
-            deleteButton.classList.remove('d-none');
-            exportButton.classList.remove('d-none');
-        } else {
-            deleteButton.classList.add('d-none');
-            exportButton.classList.add('d-none');
-        }
+        const show = selectedCheckboxes.length > 0;
+        if (deleteButton) { deleteButton.classList.toggle('d-none', !show); }
+        if (exportButton) { exportButton.classList.toggle('d-none', !show); }
     }
     
     function deleteSelectedProducts() {
