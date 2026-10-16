@@ -716,7 +716,7 @@
     });
 
     function get_single_data(pro_id) {
-        axios.get(`/?pro_id=${pro_id}&get_req_type=individual`)
+        axios.get(`{% url 'form' %}?pro_id=${pro_id}&get_req_type=individual`)
         .then(function (response) {
             const data = response.data;
 
@@ -1430,15 +1430,17 @@
     }
 
     async function getData() {
-        let urlS = new URL(window.location.href);
-        let idParam = urlS.searchParams.get("id");
         const queryParams = getFormattedQueryParams();
-        const url = `product_api?id=${idParam}&${queryParams.replace('?','')}`;
-        
-        const response = await $.getJSON(url);
-        showclients(response.results);
-        if (response.results.length > 0) {
-            setPagination(response.pagination, getData);
+        const url = '{% url "product_api" %}' + queryParams;
+
+        try {
+            const response = await $.getJSON(url);
+            showclients(response.results);
+            if (response.results.length > 0) {
+                setPagination(response.pagination, getData);
+            }
+        } catch (e) {
+            showclients([]);
         }
     }
     getData();

@@ -1459,6 +1459,28 @@ class UserManagementTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['child_code'], 'SKU-1')
 
+    # ---- product API endpoints used by the Products page ----
+    def test_product_api_returns_existing_products(self):
+        Product.objects.create(parent_code='P', child_code='SKU-9')
+        self.client.force_login(self.admin_user)
+        r = self.client.get(reverse('product_api'))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['results'][0]['child_code'], 'SKU-9')
+        # the old relative call (page at /products/ + 'product_api?...')
+        # resolved to this path and 404'd - it must stay a 404
+        self.assertEqual(self.client.get('/products/product_api').status_code, 404)
+
+    def test_individual_product_fetch_on_products_url(self):
+        # get_single_data() must hit form_view's individual branch on
+        # /products/, not '/' (which is the dashboard now)
+        p = Product.objects.create(parent_code='PX', child_code='PX-1')
+        self.client.force_login(self.admin_user)
+        r = self.client.get('/products/',
+                            {'pro_id': p.id, 'get_req_type': 'individual'})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'].split(';')[0], 'application/json')
+        self.assertEqual(r.json()['parent_code'], 'PX')
+
     # ---- UI hiding: unauthorized controls must not be rendered ----
 
     def test_products_page_hides_denied_panes_and_buttons(self):

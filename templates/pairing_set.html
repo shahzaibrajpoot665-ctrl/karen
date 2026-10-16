@@ -392,10 +392,8 @@
     }
 
     async function getData() {
-        let urlS = new URL(window.location.href);
-        let idParam = urlS.searchParams.get("id");
         const queryParams = getFormattedQueryParams();
-        const url = `/pairing_set_api?id=${idParam}&${queryParams.replace('?','')}`;
+        const url = '/pairing_set_api' + queryParams;
         
         const response = await $.getJSON(url);
         showclients(response.results);
